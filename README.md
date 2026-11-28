@@ -51,6 +51,11 @@ Garment → **Start from scratch**. The drawing board replaces the pattern libra
 Try on, fit map, PDF/projector/DXF/laser export and sewing steps all work the same as for the
 library garments. In Python: `drape.freeform.build_design(design_json, body)`.
 
+### New in v1.7.1: AI edits keep your garment
+- Editing with AI keeps the garment you have: "the hoodie is too small" on a dress now means its hood, not "make it
+  a hoodie". The AI says first how it read your request, an edit that drops most of your pieces is sent back, and the
+  review sticks to the parts you asked about. Patch pockets are sewn on properly.
+
 ### New in v1.7.0: design with AI (bring your own key)
 - **✦ AI** in the header: describe a garment, or sketch it (over the 3D view, the pattern, a blank page or your own
   image: red removes, blue adds, green draws a new line, black is for notes), and Claude designs it. Start from

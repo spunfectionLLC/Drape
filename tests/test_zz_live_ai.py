@@ -64,3 +64,19 @@ def test_live_opus_edits_the_tee(page):
     statuses, log, vers = _run(page, "edit", "Add a patch pocket on the left chest and make it 5 cm longer", "opus", 2)
     assert statuses and all(s == 200 for s in statuses), statuses
     assert vers, log
+
+
+def test_live_opus_fixes_the_dress_hood_and_keeps_the_dress(page):
+    """Tyler's case (2026-11-28): "the hoodie ... too small" on a dress with a hood came back as a hoodie."""
+    _ensure_avatar(page)
+    _go_garment(page, "shift_dress")
+    page.click("#toScratch")
+    page.wait_for_function(f"{ST}.ST.scratch && {ST}.ST.design.pieces.some(p => p.name === 'front')", timeout=60000)
+    page.evaluate(f"(async () => {{ await serverEdit('band', {{kind: 'hood', loop: ['front.neck', 'back.neck'], avatar: {ST}.ST.avatar.id}}) }})()")
+    page.wait_for_function(f"{ST}.ST.design.pieces.some(p => p.role === 'hood')", timeout=60000)
+    before = page.evaluate(f"{ST}.ST.design.pieces.map(p => p.name)")
+    statuses, log, vers = _run(page, "edit", "the hoodie is not draping correctly. its too small. can you fix that.", "opus", 1)
+    after = page.evaluate(f"{ST}.ST.design.pieces.map(p => p.name)")
+    print("pieces before", before, "\npieces after", after)
+    assert statuses and all(s == 200 for s in statuses), statuses
+    assert all(any(a == b or a.startswith(b + "_") for a in after) for b in before if b in ("front", "back")), (before, after)

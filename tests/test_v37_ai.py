@@ -263,3 +263,33 @@ def test_sketch_backgrounds_and_images_stay_small(page):
     assert big == [1024, 640]
     page.evaluate("AI.strokes = []; AI.bg = null; aiDrawPad()")
     assert not page.errors, page.errors
+
+
+def test_an_edit_keeps_the_garment_even_when_the_model_makes_another_one(page):
+    """Tyler (2026-11-28): "the hoodie is too small" on his dress came back as a hoodie: the builder read "hoodie" as
+    the garment. An edit that drops most of the original pieces is sent back, whatever the model says."""
+    from test_browser import _go_garment
+    _ensure_avatar(page)
+    _go_garment(page, "tee")
+    hoodie = copy.deepcopy(SKIRT)
+    for p, n in zip(hoodie["pieces"], ("hoodie_front", "hoodie_back")):
+        p["name"] = n
+    hoodie["seams"] = [{"a": "hoodie_front.side_r", "b": "hoodie_back.side_l", "ease": 0}, {"a": "hoodie_front.side_l", "b": "hoodie_back.side_r", "ease": 0}]
+
+    def script(n, b):
+        if b["tools"][0]["name"] == "submit_review":
+            return 200, SSE, _sse(REVIEW)
+        txt = b["messages"][0]["content"][0]["text"]
+        if n == 1:                                                   # another garment altogether
+            return 200, SSE, _sse(_design_reply(n, hoodie))
+        cur = json.loads(txt.split("Current design (editor format):\n", 1)[1].split("\n\n", 1)[0])
+        return 200, SSE, _sse(_design_reply(n, cur))                 # the tee, kept
+    calls, log = _run(page, script, mode="edit", text="the hoodie is too small, can you fix that")
+    first = calls[0]["messages"][0]["content"][0]["text"]
+    assert "This is an edit of the user's tee" in first and "- front (" in first
+    fix = calls[1]["messages"][-1]["content"][0]
+    assert fix["is_error"] and "no longer keeps it" in fix["content"] and "front" in fix["content"]
+    assert page.evaluate(f"{ST}.ST.design.pieces.map(p => p.name)") == [p["name"] for p in json.loads(first.split("Current design (editor format):\n", 1)[1].split("\n\n", 1)[0])["pieces"]]
+    crit = [c for c in calls if c["tools"][0]["name"] == "submit_review"][0]["messages"][0]["content"][0]["text"]
+    assert "This was an EDIT of the user's tee" in crit
+    assert not page.errors, page.errors

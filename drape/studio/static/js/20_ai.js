@@ -201,8 +201,9 @@ const AI_DESIGN_TOOL = {
     plan: {type: "string", description: "Short plan: each piece and its key dimensions worked out from the measurements (show the arithmetic), every seam with both edges' lengths, every opening; and how you read each mark on the user's sketch."},
     design: {type: "object", description: "The design: {pieces: [...], seams: [...]} in the editor format of the specification (verts + edges)."},
     fabric: {type: "string", description: "The garment's fabric key."},
+    reading: {type: "string", description: "One plain sentence for the user: how you read the request and the sketch, naming the parts of the garment they refer to (\"the hood is too small: I'll make the hood piece bigger\")."},
     summary: {type: "string", description: "One or two plain sentences for the user: what you made or changed."},
-  }, required: ["plan", "design", "summary"]},
+  }, required: ["reading", "plan", "design", "summary"]},
 };
 const AI_REVIEW_TOOL = {
   name: "submit_review", strict: true,
@@ -229,7 +230,7 @@ How to work:
 - Every seam: work out both edges' lengths; they must match unless the seam's ease says how much longer one is.
 - Place every piece: front pieces at a *_front landmark, back pieces at *_back, sleeves with place.arm, bands with place.loop.
 - Patch pockets, patches and appliqués are topstitched onto their piece with place.on (pos, sewn), never with seams or by cutting the piece.
-- When editing, change only what the request, the sketch or the corrections ask for; keep every other piece, edge name, seam and placement exactly as it is. Always return the whole design, not just the changes.
+- When editing, the garment stays the same kind of garment (a dress stays a dress) unless the request plainly asks for a different one. The request's words name parts of the current design: map each to its pieces ("hoodie" or "hood" is the hood piece, "skirt" the part below the waist, "sleeve" the sleeve pieces). Change only what the request, the sketch or the corrections ask for; keep every other piece, edge name, seam and placement exactly as it is. Always return the whole design, not just the changes.
 - Allowed fabric keys: ${I.fabrics.map(f => f.key).join(", ")}. Landmarks: ${Object.keys(I.landmarks).join(", ")}. Hem styles: ${Object.keys(I.hem_styles).join(", ")}. Interfacings: ${I.interfacings.map(f => f.key).join(", ")}.
 - The user may sketch: red = remove or cut away, blue = add or extend, green = a new line (seam, neckline, hem), black = notes and arrows. Say in "plan" how you read each mark.
 - Every body is valid: design for the wearer, never comment on their body.
@@ -253,9 +254,33 @@ Scores, 1-10:
 - physics: cloth inside the body, twisted seams, linings showing through, pieces caught on the wrong side.
 Rely on the numbers for fit and on the images for style, proportion and visible faults. Every body is valid: judge the garment, never the body.
 pass is true only when the garment clearly matches the request and has no problem-level fit issue or physical fault.
-corrections: at most 6, most important first, each specific and actionable, naming pieces and edges from the design and giving amounts in cm where you can ("raise front.hem and back.hem by 15 cm").`}];
+corrections: at most 6, most important first, each specific and actionable, naming pieces and edges from the design and giving amounts in cm where you can ("raise front.hem and back.hem by 15 cm").
+For an edit, judge the parts the request names (read its words as parts of that garment: "the hoodie" on a dress is its hood). Your corrections stay within those parts, except for physical faults (cloth inside the body, open or twisted seams). Fit notes about parts the request didn't name don't fail the edit: mention them in the summary as an idea instead.`}];
 
 // ------------------------------------------------------------------ checking a design before it's used
+// what kind of garment a design is, and its pieces in a line each (the builder and the critic get it for an edit)
+function aiGarmentKind(d) {
+  const t = (d.pieces || []).map(p => p.place && p.place.template && p.place.template.block).find(Boolean);
+  return (d.from_block || t || ST.block || "garment").replace(/_/g, " ");
+}
+function aiPieceList(d) {
+  return (d.pieces || []).map(p => {
+    const pl = p.place || {}, xs = (p.verts || []).map(v => v[0]), ys = (p.verts || []).map(v => v[1]);
+    const where = pl.landmark || (pl.template && `the pattern's ${pl.template.piece}`) || (pl.arm && `round the ${pl.arm > 0 ? "right" : "left"} arm`) || (pl.loop && `round ${pl.loop.join(" + ")}`) || (pl.on && `sewn on ${pl.on}`) || "placed";
+    return `- ${p.name} (${p.role || "piece"}, ${where}, about ${Math.round(Math.max(...xs) - Math.min(...xs))} x ${Math.round(Math.max(...ys) - Math.min(...ys))} cm)`;
+  }).join("\n");
+}
+// an edit keeps its garment: most of the pieces from before the request are still there (by name, or split into
+// parts named after them, front -> front_mid). Returns the problem, or "".
+function aiEditGuard(orig, d) {
+  if (!orig || !orig.pieces.length) return "";
+  const names = d.pieces.map(p => p.name), kept = n => names.some(m => m === n || m.startsWith(n + "_"));
+  const lost = orig.pieces.map(p => p.name).filter(n => !kept(n));
+  const body = orig.pieces.filter(p => (p.role || "body") === "body").map(p => p.name), bodyLost = body.filter(n => !kept(n));
+  if (lost.length * 2 > orig.pieces.length || (body.length && bodyLost.length * 2 > body.length))
+    return `This is an edit of the user's ${aiGarmentKind(orig)}, but the design no longer keeps it: ${lost.length} of its ${orig.pieces.length} pieces are gone (${lost.join(", ")}). Keep the existing garment and its pieces and change only the parts the request names (it doesn't ask for a different garment: to make a new one the user starts from scratch).`;
+  return "";
+}
 function aiCheck(d) {
   const E = [], I = ST.init, fab = new Set(I.fabrics.map(f => f.key)), lms = new Set(Object.keys(I.landmarks));
   const NAME = /^[A-Za-z][A-Za-z0-9_]{0,39}$/, num = v => typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1000;
@@ -362,12 +387,14 @@ async function aiRun2(key, request) {
   AI.ctrl = new AbortController();
   $("#ailog").innerHTML = "";
   let design = fromScratch ? null : JSON.parse(JSON.stringify(ST.design)), verdict = null, renders = [], lastScore = -1, flat = 0, made = false;
+  const orig = design && JSON.parse(JSON.stringify(design));        // the garment from before this request: every round keeps it
   try {
     for (let round = 1; round <= rounds && !AI.stopped; round++) {
       // 1. the builder writes (or fixes) the design
       aiLog(`Round ${round}: the builder is ${design ? "revising" : "drafting"} the design`);
       const txt = [`Request: ${request || "(see the sketch)"}`, `Mode: ${design ? "edit the current design" : "start from scratch"}`,
         `Wearer's measurements (cm): ${JSON.stringify(ST.meas)}`, `Garment fabric now: ${ST.fabric}`];
+      if (orig) txt.push(`This is an edit of the user's ${aiGarmentKind(orig)}. Before this request it had these pieces:\n${aiPieceList(orig)}\nKeep it a ${aiGarmentKind(orig)}: the request's words name parts of it.`);
       if (design) txt.push(`Current design (editor format):\n${JSON.stringify(design)}`);
       if (verdict) txt.push(`Round ${round}. The critic's review of the last drape (scores ${JSON.stringify(verdict.scores)}): ${verdict.summary}\nCorrections:\n${verdict.corrections.map((c, i) => `${i + 1}. ${c.where}: ${c.change}`).join("\n")}`);
       const content = [{type: "text", text: txt.join("\n\n")}];
@@ -383,13 +410,15 @@ async function aiRun2(key, request) {
         if (!tu) { msgs.push({role: "user", content: "Call submit_design with the whole design."}); continue }
         const chk = !tu._bad && tu.input && tu.input.design ? aiCheck(cleanFile(tu.input.design))
           : {errors: [r.stop === "max_tokens" || tu._bad ? "the design was cut off or wasn't valid JSON: keep it shorter (Bézier edges instead of long pts lists, fewer pieces)" : "submit_design needs a design object"]};
-        if (!chk.errors.length) { out = {design: chk.design, fabric: tu.input.fabric, summary: tu.input.summary || "", plan: tu.input.plan || ""}; break }
+        if (!chk.errors.length && orig) { const g = aiEditGuard(orig, chk.design); if (g) chk.errors.push(g) }
+        if (!chk.errors.length) { out = {design: chk.design, fabric: tu.input.fabric, summary: tu.input.summary || "", plan: tu.input.plan || "", reading: tu.input.reading || ""}; break }
         aiLog(`The design has ${chk.errors.length} problem${chk.errors.length > 1 ? "s" : ""}: sent back to fix`, "bad"); aiStatus(chk.errors.slice(0, 2).join("; "));
         msgs.push({role: "user", content: [{type: "tool_result", tool_use_id: tu.id, is_error: true, content: "The design didn't pass the checks:\n- " + chk.errors.slice(0, 20).join("\n- ") + "\nFix them and call submit_design again with the whole design."}]});
       }
       if (!out) throw new Error("the builder couldn't produce a design that passes the checks");
       // 2. into the editor; the studio's own checks
       await aiApply(out.design, out.fabric, fromScratch && !made); made = true; design = JSON.parse(JSON.stringify(ST.design));
+      if (out.reading && round === 1) aiLog(`How it read your request: ${out.reading}`, "note");
       aiLog(`Round ${round}: ${out.summary}`, "ok");
       const fails = ((DS.resp && DS.resp.check) || []).filter(c => !c.ok).map(c => c.text);
       if (fails.length) aiStatus("studio checks: " + fails.slice(0, 3).join("; "));
@@ -406,7 +435,9 @@ async function aiRun2(key, request) {
       const cc = [{type: "text", text: [`Request: ${request || "(see the sketch)"}`, `Round ${round} of ${rounds}.`,
         `Simulation numbers: ${JSON.stringify({strain_p99_pct: m.strain_p99_pct, penetrating_points: m.penetrating_verts, kinetic_energy_uJ: m.kinetic_energy_uJ, seam_gap_max_mm: m.seam_gap_max_mm})}`,
         `Fit notes: ${adv.join(" | ") || "none"}`, `Ease on the drape: ${JSON.stringify((ST.drape && ST.drape.ease) || [])}`,
-        `Studio checks that failed: ${fails.join(" | ") || "none"}`, `Design file:\n${JSON.stringify(design)}`].join("\n\n")}];
+        `Studio checks that failed: ${fails.join(" | ") || "none"}`,
+        ...(orig ? [`This was an EDIT of the user's ${aiGarmentKind(orig)}. Before the request it had these pieces:\n${aiPieceList(orig)}\nIf the result is no longer that kind of garment, or lost parts the request didn't ask to remove, pass is false and the first correction says to restore it.`] : []),
+        `Design file:\n${JSON.stringify(design)}`].join("\n\n")}];
       for (const s of sketch) cc.push({type: "text", text: s.label}, aiImg(s.data));
       ["front", "back", "side"].forEach((v, i) => { if (renders[i]) cc.push({type: "text", text: `The drape, ${v} (each piece is drawn in its own colour, to tell them apart; it is not the fabric):`}, aiImg(renders[i])) });
       const r = await aiCall(key, {model, system: AI_CRITIC_SYSTEM, messages: [{role: "user", content: cc}], tools: [AI_REVIEW_TOOL], effort: "medium"});

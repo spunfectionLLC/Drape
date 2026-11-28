@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drape"
-version = "1.7.0"
+version = "1.7.1"
 description = "Spunfection Studio: free, open-source 2D sewing patterns draped in 3D (the code package is drape)"
 authors = [{name = "Spunfection LLC"}]
 maintainers = [{name = "Spunfection LLC"}]
