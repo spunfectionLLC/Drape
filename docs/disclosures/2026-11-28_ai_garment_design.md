@@ -178,6 +178,65 @@ The user can hand the design and its documents to a sewist to have it made.
    - unknown keys are dropped;
    - files that fail are rejected with the reasons sent back to the builder.
 
+## 11. Sketching corrections over the render
+
+*Added 2026-11-28 (second revision of this document).*
+
+The user can ask for changes by drawing them instead of describing them. The drawing goes to the models as a reference alongside the text.
+
+### 11.1 What the user draws on
+
+- **Over a 3D render:** a still of the draped garment on the avatar from any viewpoint the user turns to. The camera is recorded with the drawing: position, direction, field of view and image size.
+- **Over a 2D sketch:** a flat front or back drawing of the garment (a technical flat) made from the design, or a blank body outline (a croquis) from the avatar's silhouette, for drawing a new garment from nothing.
+- **Over the pattern pieces:** the flat pieces as shown in the editor.
+- **Over the user's own image:** a photo or hand sketch, placed beside or behind the render for reference.
+
+### 11.2 The drawing tools
+
+- **Freehand strokes**, in colours with fixed meanings:
+  - red: cut away or remove;
+  - blue: add or extend;
+  - green: a new line (a seam, a neckline, a hem);
+  - black: notes and arrows.
+- **Arrows** for "move this here" or "longer / shorter".
+- **Circles** around an area meaning "look at this".
+- **Filled areas** meaning "this part in another fabric or look".
+- **Short text notes** placed on the drawing ("more gathered", "pocket here", "like this but flared").
+- **Undo, erase, and layers**, so the clean render and the markings stay separate.
+
+### 11.3 What the models receive
+
+- The clean render and the marked-up version.
+- The strokes as data: each stroke's type, colour, points in image coordinates, and any text.
+- The camera, so a point on the image can be turned into a ray into the 3D scene.
+- **Strokes carried onto the garment.** Each stroke point drawn over the garment is projected:
+  - cast a ray from the camera through the pixel;
+  - find the triangle of the draped mesh it hits;
+  - take the point's barycentric coordinates in that triangle;
+  - from those, find the matching point on the flat pattern piece the triangle belongs to.
+
+  A drawn new hem line therefore becomes a curve in each pattern piece's own coordinates, and a circled area becomes a set of pieces and regions. Points that miss the garment are kept as offsets from the nearest garment edge or from the body, so "extend down to here" keeps its length.
+- **For strokes on a 2D sketch or croquis:** the flat drawing is generated from known views of the avatar and the design, so its coordinates map to the body's landmarks and to the pieces in the same way.
+- **Lengths in centimetres:** measured from the projected strokes, for example "the new hem is 12 cm above the current one at centre front".
+
+### 11.4 How the builder uses them
+
+- The builder reads each stroke with its meaning and turns it into edits on the design file. For example:
+  - a green line across the bodice becomes a split of the front piece along that curve, with a seam;
+  - a blue outline below the hem becomes a longer hem, following the drawn shape;
+  - red over a sleeve becomes a shorter sleeve or no sleeve;
+  - a filled area becomes a piece split with its own look or fabric;
+  - an arrow on the neckline becomes a neckline lowered by the arrow's length.
+- Before applying them, the builder states its reading of the drawing in plain words, one line per stroke ("I read this as: lower the front neckline by 4 cm and make it a V"). The user confirms or corrects each line.
+- The critic gets the same drawing on the next round, rendered from the same camera with the strokes laid over the new drape, so it can check that every stroke was carried out and nothing else changed.
+
+### 11.5 Variations
+
+- Drawing on several views at once (front, back, side); the projected strokes are merged on the pattern pieces.
+- A stroke the projection can't place (it misses the garment and the body) is asked about instead of guessed.
+- The user's strokes kept with each version, so the history shows what was asked and what was done.
+- The same drawing tools used without any model: the strokes become guide lines on the pattern pieces for the user to edit by hand.
+
 ---
 
 *This disclosure describes methods only. Spunfection LLC publishes it so that these methods remain free for anyone to use.*
