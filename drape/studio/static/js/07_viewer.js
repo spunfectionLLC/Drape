@@ -241,6 +241,9 @@ precision mediump float;
     const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2), w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; dirty = true }
     if (!dirty) return; dirty = false;
+    paint(w, h);
+  }
+  function paint(w = cv.width, h = cv.height) {
     gl.viewport(0, 0, w, h); gl.clearColor(...bgc, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!body) return;
     const eye = [target[0] + dist * Math.sin(yaw) * Math.cos(pitch), target[1] + dist * Math.sin(pitch), target[2] + dist * Math.cos(yaw) * Math.cos(pitch)];
@@ -346,6 +349,15 @@ precision mediump float;
     },
     get canvas() { return cv },
     setView(v) { if (v.yaw != null) yaw = v.yaw; if (v.pitch != null) pitch = v.pitch; dirty = true },
+    // stills of the scene from these turns (radians; 0 = from the front), drawn now and read back at once (the AI
+    // designer's renders: the critic's eyes). The view is put back as it was.
+    snapshot(yaws, type = "image/jpeg", quality = 0.85) {
+      const keep = [yaw, pitch], out = [];
+      if (!cv.width || !cv.height) return out;
+      for (const y of yaws) { yaw = y; pitch = 0.08; paint(); out.push(cv.toDataURL(type, quality)) }
+      [yaw, pitch] = keep; dirty = true; return out;
+    },
+    get view() { return {yaw, pitch} },
     setColored(m, cols) {
       trimList = null; trimObj = swap(trimObj, null);
       if (!m) { cloth = swap(cloth, null); dirty = true; return }

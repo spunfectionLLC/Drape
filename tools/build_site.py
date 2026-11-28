@@ -25,7 +25,7 @@ CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/pyodide/",
     "worker-src 'self'",
-    "connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org",
+    "connect-src 'self' https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org https://api.anthropic.com",   # the AI designer, with the visitor's own key
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",

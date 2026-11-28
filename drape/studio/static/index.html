@@ -24,6 +24,7 @@
   <nav class="steps" id="steps"></nav>
   <div class="toggles">
     <button class="btn small" id="newBtn" title="Start a new project (asks you to save this one first)">＋ New</button>
+    <button class="btn small" id="aiBtn" title="Design with AI: describe or sketch a garment (your own Anthropic API key)">✦ AI</button>
     <button class="btn small" id="fileBtn" title="Save or open a .drape file (Ctrl+S, Ctrl+O)">📁 File</button>
     <button class="iconbtn" id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
     <button class="iconbtn" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
@@ -254,6 +255,7 @@
 
 <div class="modal" id="modal"><div class="card"><div class="row" style="justify-content:space-between"><h2 id="mtitle"></h2><button class="iconbtn" id="mclose">✕</button></div><div id="mbody"></div></div></div>
 <div class="toast" id="toast"></div>
+<aside id="aipanel" hidden aria-label="Design with AI"></aside>
 
 <script src="live_springs.js"></script>
 <footer class="site-footer" id="siteFooter">© 2026 Spunfection LLC · Spunfection Studio™ is alpha software, provided as-is ·
@@ -277,5 +279,7 @@
 <script src="js/16_board.js"></script>
 <script src="js/17_garments.js"></script>
 <script src="js/18_boot.js"></script>
+<script src="js/19_ai_spec.js"></script>
+<script src="js/20_ai.js"></script>
 </body>
 </html>

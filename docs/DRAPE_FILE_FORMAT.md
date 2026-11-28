@@ -162,6 +162,20 @@ Pieces are wrapped round the body at a landmark, then sewn and draped by the sim
 - `wrist: true` makes a long sleeve follow the forearm.
 - Draft the sleeve with its hem along y = 0, the cap on top, and +x toward the front. Name the cap's two halves `cap_r` (front) and `cap_l` (back), and the underarm edges `underarm_r` and `underarm_l`. Sew `underarm_r` to `underarm_l` to close the sleeve.
 
+**A piece sewn onto another one**, such as a patch pocket, a patch or an appliqué, is topstitched onto its host. It isn't sewn with `seams`:
+
+```json
+"place": {"on": "front", "pos": [-9, 38], "rotate": 0, "sewn": ["left", "bottom", "right"]}
+```
+
+- `on`: the host piece's name.
+- Draft the pocket round its own (0, 0), for example a rectangle from (-6, -7) to (6, 7) with edges `bottom`, `right`, `top`, `left`.
+- `pos`: where the pocket's (0, 0) sits on the host's pattern, in cm in the host's own coordinates. Keep the whole pocket at least 1 cm inside the host's outline.
+- `rotate`: degrees.
+- `sewn`: the pocket's edges that are stitched down. Leave out the opening, usually `top`. With no `sewn`, every edge except the top one is stitched.
+- Give it `"role": "pocket"`. Add `"inside": true` for a pocket on the inside face, like a jacket's inner pocket.
+- Don't add seams for a sewn-on piece's edges: `place.on` stitches them.
+
 **A band round an opening**, such as a neckband, collar, cuff or waistband, goes along the edges it's sewn to:
 
 ```json

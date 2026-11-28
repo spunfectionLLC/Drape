@@ -435,3 +435,18 @@ body[data-step="body"] .gpanel{display:none}
 :root[data-theme=dark] .g-edge{--gc:#e3a03c} :root[data-theme=dark] .g-open{--gc:#4fbf86} :root[data-theme=dark] .g-view{--gc:#a989dc}
 .tbar .dd .ddmenu{top:calc(100% + 4px)}
 @media (max-width:640px){.tgroup{padding:0 4px}.tb{width:46px;height:44px}.tb .tl{font-size:9.5px}}
+
+/* AI designer (js/20_ai.js): a panel on the right, over the page, the 3D view still visible beside it */
+#aipanel{position:fixed;top:64px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));z-index:60;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.18);padding:14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+#aipanel[hidden]{display:none}
+#aipanel .aihead{display:flex;align-items:center;justify-content:space-between}
+#aipanel .aismall{font-size:12px;color:var(--muted)}
+#aipanel textarea{width:100%;resize:vertical;font:inherit}
+#aipad{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:8px;touch-action:none;cursor:crosshair;background:#fff}
+#aipanel .aipadbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#aipanel .aipen{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+#aipanel .aipen.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--panel) inset}
+#aipanel .aiver{display:flex;gap:10px;align-items:flex-start;border-top:1px solid var(--line);padding-top:8px;margin-top:6px}
+#aipanel .aiver img{width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+@media (max-width:640px){#aipanel{top:56px;right:8px;left:8px;width:auto}}

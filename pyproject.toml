@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drape"
-version = "1.6.16"
+version = "1.7.0"
 description = "Spunfection Studio: free, open-source 2D sewing patterns draped in 3D (the code package is drape)"
 authors = [{name = "Spunfection LLC"}]
 maintainers = [{name = "Spunfection LLC"}]
@@ -19,7 +19,7 @@ test = ["pytest", "pytest-xdist", "pdf2image", "playwright"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-markers = ["slow: end-to-end simulation tests"]
+markers = ["slow: end-to-end simulation tests", "live: calls a real paid API (needs a key in the environment)"]
 
 [tool.setuptools.packages.find]
 include = ["drape*"]

@@ -51,6 +51,16 @@ Garment → **Start from scratch**. The drawing board replaces the pattern libra
 Try on, fit map, PDF/projector/DXF/laser export and sewing steps all work the same as for the
 library garments. In Python: `drape.freeform.build_design(design_json, body)`.
 
+### New in v1.7.0: design with AI (bring your own key)
+- **✦ AI** in the header: describe a garment, or sketch it (over the 3D view, the pattern, a blank page or your own
+  image: red removes, blue adds, green draws a new line, black is for notes), and Claude designs it. Start from
+  scratch (a new garment) or edit the one you have.
+- It works in rounds: the builder writes the pattern, the studio checks it (and sends any problem straight back to be
+  fixed), it's draped on your avatar, and a critic looks at renders of the drape and the fit numbers and asks for
+  specific changes. Every round is kept: pick the version you like.
+- You type your own Anthropic API key each visit. It stays in that browser tab and goes only to Anthropic: it's never
+  saved, put in a project file or sent to Spunfection. The panel shows what the rounds have cost on your key.
+
 ### New in v1.6.16: linings stay inside
 - A lining is cut 2.5 cm shorter at its open edges (a hem), so it can't show below the shell, and tacked to the
   shell at each end of them (French tacks at the seams).
