@@ -1,0 +1,12 @@
+{
+  "units": "cm",
+  "name": "example S",
+  "height": 162,
+  "chest": 88,
+  "waist": 70,
+  "hip": 98,
+  "shoulder_width": 39,
+  "neck": 33,
+  "upper_arm": 27,
+  "arm_length": 55
+}

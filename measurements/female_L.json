@@ -1,0 +1,14 @@
+{
+  "name": "female L",
+  "units": "cm",
+  "sex": "female",
+  "height": 168,
+  "chest": 104,
+  "underbust": 86,
+  "waist": 88,
+  "hip": 112,
+  "shoulder_width": 41,
+  "neck": 36,
+  "upper_arm": 32,
+  "arm_length": 57
+}

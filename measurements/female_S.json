@@ -1,0 +1,14 @@
+{
+  "name": "female S",
+  "units": "cm",
+  "sex": "female",
+  "height": 163,
+  "chest": 84,
+  "underbust": 70,
+  "waist": 66,
+  "hip": 92,
+  "shoulder_width": 37,
+  "neck": 32,
+  "upper_arm": 26,
+  "arm_length": 55
+}

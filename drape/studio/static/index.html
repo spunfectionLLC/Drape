@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spunfection Studio</title>
+<meta name="description" content="Free, open-source sewing pattern design: draft 2D patterns and see them drape in 3D on an avatar made from your measurements.">
+<link rel="canonical" href="https://spunfection.studio/">
+<meta property="og:title" content="Spunfection Studio">
+<meta property="og:site_name" content="Spunfection Studio">
+<meta property="og:url" content="https://spunfection.studio/">
+<meta property="og:type" content="website">
+<meta property="og:description" content="Free, open-source 2D sewing patterns, draped in 3D in your browser.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Spunfection Studio">
+<meta name="twitter:description" content="Free, open-source 2D sewing patterns, draped in 3D in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M8 3l-5 4 3 4 2-1v11h8V10l2 1 3-4-5-4c-.5 2-2 3-4 3s-3.5-1-4-3z%22 fill=%22%231f7a6d%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/studio.css">
+</head>
+<body data-step="body">
+<header>
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3l-5 4 3 4 2-1v11h8V10l2 1 3-4-5-4c-.5 2-2 3-4 3s-3.5-1-4-3z"/></svg>Spunfection Studio™</div>
+  <button class="alpha-badge" id="alphaBtn" title="Spunfection Studio is in alpha: what that means">ALPHA</button>
+  <nav class="steps" id="steps"></nav>
+  <div class="toggles">
+    <button class="btn small" id="newBtn" title="Start a new project (asks you to save this one first)">＋ New</button>
+    <button class="btn small" id="fileBtn" title="Save or open a .drape file (Ctrl+S, Ctrl+O)">📁 File</button>
+    <button class="iconbtn" id="undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+    <button class="iconbtn" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+    <div class="seg" id="mode"><button data-m="beg" class="on">Simple</button><button data-m="adv">Advanced</button></div>
+    <div class="menuwrap"><button class="iconbtn" id="setBtn" title="Settings: units, dark mode, help" aria-haspopup="true" aria-expanded="false">⚙</button>
+      <div class="menu" id="setmenu" hidden>
+        <div class="mrow"><span>Units</span><div class="seg" id="units"><button data-u="cm" class="on">cm</button><button data-u="in">in</button></div></div>
+        <button class="mitem" id="theme" title="Dark mode">◐ Dark mode</button>
+        <button class="mitem" id="helpBtn" title="How Spunfection Studio works">? How it works</button>
+      </div></div>
+  </div>
+</header>
+
+<main>
+  <section class="card side" id="side">
+    <div class="blockmsg" id="blockmsg" role="status"></div>
+    <!-- the project's garments (multi-garment spec): pick the one you're working on; layer 1 is closest to the body -->
+    <div class="gpanel" id="gpanel">
+      <div class="ghead"><button class="gtoggle" id="gtoggle" aria-expanded="true" title="Show or hide the garment list">▾</button>
+        <b>Garments</b>
+        <div class="dd gadd"><button class="btn small ddbtn" id="addGarment" aria-haspopup="true">＋ Add garment ▾</button>
+          <div class="ddmenu" hidden id="addGarmentMenu">
+            <button class="btn small" data-ga="blank">New blank garment</button>
+            <button class="btn small" data-ga="import">Import garment file…</button>
+            <button class="btn small" data-ga="dup">Duplicate active garment</button>
+          </div></div></div>
+      <select id="gselect" aria-label="Garment you're working on"></select>
+      <div class="gbody" id="gbody">
+        <div class="glist" id="glist" role="listbox" aria-label="Garments"></div>
+        <div class="gfoot"><div class="row" style="gap:6px"><button class="btn small" id="exportGarmentBtn">Export garment</button>
+          <button class="btn small" id="saveProjectBtn">Save project</button></div>
+          <small>Layer 1 is closest to the body. Frozen garments act as colliders: drape the inner garment, freeze it, then drape the next.</small></div>
+      </div>
+      <input type="file" id="importGarmentFile" accept=".garment,.json" hidden>
+    </div>
+    <!-- 1 BODY -->
+    <div class="pane on" data-pane="body">
+      <h2>Your body</h2>
+      <p class="lead">Start from a size, then type in your own measurements. Patterns are drafted to fit this avatar.</p>
+      <div class="row"><span>Start from</span><select id="example" class="btn small"></select>
+        <button class="btn small" id="howto">How to measure</button></div>
+      <div class="seg" id="sex"><button data-s="female" class="on">Female</button><button data-s="male">Male</button></div>
+      <div id="mfields" style="display:flex;flex-direction:column;gap:8px"></div>
+      <details id="moremeas"><summary>More measurements (optional)</summary><div id="mfields2" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div></details>
+      <div id="profiles" class="chips"></div>
+      <div id="fitrows"></div>
+      <div class="actions">
+        <div class="row">
+          <button class="btn primary" id="build" style="flex:1">Build my avatar</button>
+          <button class="btn small" id="saveprof" title="Save these measurements in this browser">Save as profile</button>
+        </div>
+        <div id="nextslot"></div>
+      </div>
+    </div>
+
+    <!-- 2 GARMENT -->
+    <div class="pane" data-pane="garment">
+      <h2>Start from a basic pattern</h2>
+      <p class="lead">A proven starting pattern, drafted to your avatar's measurements.</p>
+      <div class="cards" id="gcards"></div>
+      <h2 style="margin-top:22px">Or pick a finished design</h2>
+      <p class="lead">Finished designs with bands, pockets, buttons and zippers, sized to your avatar. Each one opens in the
+        design editor, so you can change anything.</p>
+      <div class="chips" id="scats"></div>
+      <div class="cards" id="scards"></div>
+    </div>
+
+    <!-- 3 FIT -->
+    <div class="pane" data-pane="fit">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><h2 id="fitTitle">Choose the fit</h2>
+        <a href="#" class="changepat" id="changePattern">Change pattern</a></div>
+      <button class="btn primary bigbtn" id="toScratch" title="Turn this pattern into pieces you can reshape: drag corners, curve edges, add pieces, re-sew">✎ Convert to free edit
+        <small>reshape every piece by hand · it keeps hanging on the body as it does now</small></button>
+      <div id="choices" style="display:flex;flex-direction:column;gap:12px"></div>
+      <details class="sumbox" id="checksBox"><summary id="checksSum">Checks</summary>
+        <div class="checks" id="checks"></div></details>
+      <div class="adv">
+        <h3>Every measurement</h3>
+        <div id="sliders" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div class="row" style="margin-top:10px"><button class="btn small" id="resetp">Reset to drafted values</button></div>
+        <h3 style="margin-top:14px">Seams</h3>
+        <table id="seamtab"></table>
+      </div>
+      <div class="actions"><button class="btn primary" id="toPreview">Try it on →</button></div>
+    </div>
+
+
+    <!-- 3b DESIGN FROM SCRATCH (the drawing tools are beside the pattern) -->
+    <div class="pane" data-pane="design">
+      <details class="sumbox" id="garlook" open><summary id="garlookSum">Fabric &amp; print</summary>
+        <h3>Fabric <small style="text-transform:none;letter-spacing:0;font-weight:400">(the whole garment)</small></h3>
+        <div class="chips" id="fabrics"></div>
+        <h3>Print</h3>
+        <div class="chips" id="prints"></div>
+        <div class="slider" id="printScale" style="display:none"><label>Repeat size</label><span class="val" id="prsv"></span><input type="range" id="prs" min="1" max="40" step="0.5" value="8"></div>
+        <p class="lead" style="font-size:12px;margin:0">A piece can have its own fabric and look: select it below.</p>
+      </details>
+      <h2>Selected piece</h2>
+      <div class="ins" id="shapepanel" style="display:none"></div>
+      <div id="inspector"></div>
+      <button class="btn small" id="cutBtn" title="Cut the selected piece in two along a line">✂ Cut a piece</button>
+      <div id="dsChecks" class="checks" style="display:none"></div>
+    </div>
+    <!-- 4 PREVIEW -->
+    <div class="pane" data-pane="preview">
+      <h2>Try it on</h2>
+      <p class="lead">We sew the pieces together and let them fall on your avatar, like real fabric.</p>
+      <div class="adv" id="simset">
+      <p class="lead" style="font-size:12px;margin:0">Fabric and print are set in Design.</p>
+      <h3>Speed</h3>
+      <div class="seg" id="quality" style="align-self:flex-start"><button data-q="quick" class="on">Quick look (~10 s)</button><button data-q="full">Full detail</button></div>
+      <h3>Move test <small style="text-transform:none;letter-spacing:0;font-weight:400">(optional; always full detail, ~1 min)</small></h3>
+      <div class="chips" id="poses"></div>
+      <div class="adv">
+        <h3>Simulation</h3>
+        <div class="slider"><label>Seconds to simulate<small>longer settles more</small></label><span class="val" id="secv">3.5 s</span>
+          <input type="range" id="secs" min="2" max="8" step="0.5" value="3.5"></div>
+      </div>
+      </div>
+      <div id="liveBar" class="checks" style="display:none"></div>
+      <div id="advice" class="checks"></div>
+      <p class="lead" style="font-size:12px" id="tapHint">Tip: tap anywhere on the garment to ask "what's going on here?"</p>
+      <div id="explain" class="checks"></div>
+      <div id="metrics" class="adv"></div>
+      <div class="actions">
+        <div class="row" style="gap:8px"><button class="btn primary" id="drapeBtn" style="flex:1">Drape it</button>
+          <button class="btn" id="liveBtn" title="Simulate on your graphics card while you watch: drag the cloth with the mouse, switch fabrics on the fly">⚡ Live</button></div>
+        <button class="btn" id="toExport">Looks good → make the pattern</button>
+        <small class="layernote" id="layernote" hidden>More than one garment will move: they drape together, one after another from the inner layer out, each over the ones under it.</small>
+      </div>
+    </div>
+
+    <!-- 5 EXPORT -->
+    <div class="pane" data-pane="export">
+      <h2>Make it</h2>
+      <div class="row" id="yard"></div>
+      <div class="slider"><label>Seam allowance<small>added around every piece</small></label><span class="val" id="sav"></span>
+        <input type="range" id="sa" min="0.6" max="2.5" step="0.1" value="1.5"></div>
+      <!-- more than one garment (multi-garment spec): which ones the files are for -->
+      <div class="multiopts" id="multiOpts" hidden>
+        <span>Files for <b id="multiActive"></b> (the garment you're working on), or:</span>
+        <label><input type="checkbox" id="allGarments"> Patterns: every garment, one file each</label>
+        <label><input type="checkbox" id="outfit3d"> 3D: the whole outfit (every visible garment)</label>
+      </div>
+      <div class="exports beg" id="simpleExports"></div>
+      <button class="btn small beg" id="moreFormats" style="align-self:flex-start">More formats ▸</button>
+      <div class="expgroups moreonly" id="exports"></div>
+      <div class="moreonly col" style="display:flex;flex-direction:column;gap:10px">
+      <h3>Sell it</h3>
+      <div class="ins">
+        <b>Size-run PDF pattern</b><span class="lead" style="font-size:13px">Every size nested on the same pages, a size chart and a test square: a PDF pattern people can buy and print at home.</span>
+        <div class="grid2"><label class="f">Sizes<select id="srTable"><option value="misses">Women's 2–20 (ASTM D5585)</option><option value="mens">Men's chest 34–52</option></select></label>
+        <label class="f">Paper<select id="srPaper"><option value="letter">Letter</option><option value="a4">A4</option></select></label></div>
+        <button class="btn small primary" id="srGo" style="align-self:flex-start">Download size-run PDF</button></div>
+      <div class="ins">
+        <b>Laser nesting</b><span class="lead" style="font-size:13px">Pack the pieces (of one or more garments) onto your laser bed, sheet by sheet, in one LightBurn-ready DXF.</span>
+        <div class="grid2"><label class="f">Bed width (cm)<input type="text" id="bedW" value="60"></label><label class="f">Bed depth (cm)<input type="text" id="bedH" value="40"></label>
+        <label class="f">Garments<input type="text" id="bedN" value="1"></label><label class="f" style="justify-content:flex-end"><button class="btn small primary" id="bedGo">Download nested DXF</button></label></div>
+        <small id="bedOut" style="color:var(--muted)"></small></div>
+      <div class="ins" id="costBox" hidden><b>Cost &amp; price</b><div id="costBody" class="lead" style="font-size:13px">…</div></div>
+      <div class="ins"><b>Turntable video</b><span class="lead" style="font-size:13px">A spinning video of the draped garment for your listing or TikTok.</span>
+        <button class="btn small primary" id="vidGo" style="align-self:flex-start">Record 6-second video</button><small id="vidOut" style="color:var(--muted)"></small></div>
+      </div>
+      <div id="sewsteps"><h3>Sewing steps</h3>
+      <ol class="steps-list" id="steplist"></ol></div>
+      <div class="row"><button class="btn small" id="saveproj">Save .drape file</button>
+        <label class="btn small" style="cursor:pointer">Open .drape file<input type="file" id="openproj" accept=".drape,.json,.garment" hidden></label></div>
+    </div>
+  </section>
+
+  <section class="stage">
+    <div class="card view" id="glcard">
+      <div class="title"><span id="gltitle">Avatar</span>
+        <span class="seg adv" id="colorby" style="display:none"><button data-c="panel" class="on">Pieces</button><button data-c="fit">Fit map</button></span>
+      </div>
+      <canvas id="gl"></canvas>
+      <div class="banner" id="placeBanner">Tap the avatar where this piece goes</div>
+      <div class="overlay" id="glov"><div class="box"><b id="glmsg">Build your avatar to begin</b><div class="bar"><i id="glbar"></i></div><small id="glsub"></small></div></div>
+      <div class="hint" id="glhint">drag to turn · scroll or pinch to zoom</div>
+      <div id="player" style="position:absolute;left:12px;right:12px;bottom:34px;display:none;align-items:center;gap:8px;z-index:4">
+        <button class="btn small primary" id="playBtn">▶</button><input type="range" id="playPos" min="0" max="1000" value="1000" style="flex:1;accent-color:var(--accent)"><span id="playLbl" style="font-size:12px;color:var(--muted)"></span></div>
+      <div class="legend" id="fitlegend" style="position:absolute;left:14px;top:34px;display:none">snug <i></i> pulling</div>
+    </div>
+    <aside class="card tools" id="toolcard">
+      <div class="tbar">
+        <div class="tgroup g-mode advg"><span class="glab">Mode</span><div class="tbtns" id="tool" role="group" aria-label="Mode">
+          <button class="tb on" data-t="select" data-ic="select" title="Shape: move pieces, drag corners, curve edges">Shape</button>
+          <button class="tb" data-t="sew" data-ic="sew" title="Sew: click two edges to sew them together">Sew</button></div></div>
+        <div class="tgroup g-piece advg"><span class="glab">Add a piece</span><div class="tbtns" id="shapes"></div></div>
+        <div class="tgroup g-edge advg"><span class="glab">Edges</span><div class="tbtns" id="edgetools"></div></div>
+        <div class="tgroup g-open advg"><span class="glab">Finish an opening</span><div class="tbtns" id="bands"></div></div>
+        <div class="tgroup g-view"><span class="glab">View</span><div class="tbtns">
+          <button class="tb symbtn" id="symBtn" data-ic="sym" title="Edit both sides at once: a change on one side of a piece is mirrored on the other, and left/right pieces stay mirror images">Symmetric</button>
+          <button class="tb" id="show3d" data-ic="view3d" title="Show the design on the avatar beside the pattern">3D view</button>
+          <div class="dd advdd"><button class="tb ddbtn" data-ic="seams" aria-haspopup="true" title="Every seam: lengths, ease, closures">Seams<span id="seamCount"></span></button>
+            <div class="ddmenu wide" hidden><div id="dsSeams" class="checks"></div></div></div>
+          <div class="dd advdd"><button class="tb ddbtn" data-ic="restart" aria-haspopup="true" title="Replace this design: an example, a blank board, or a traced photo">Start over</button>
+            <div class="ddmenu" hidden><small style="color:var(--muted)">Replace this design with</small>
+              <button class="btn small" id="dsExample">Gathered skirt example</button>
+              <button class="btn small" id="dsClear">Blank</button>
+              <button class="btn small" id="traceBtn">📷 Trace a photo</button></div></div></div></div>
+        <div class="dd begdd"><button class="btn small ddbtn" aria-haspopup="true">＋ Add ▾</button>
+          <div class="ddmenu" hidden id="addMenu">
+            <small style="color:var(--muted)">Pocket (on the piece you've selected)</small>
+            <button class="btn small" data-add="inseam">Pocket in a seam</button>
+            <button class="btn small" data-add="patch">Patch pocket</button>
+            <small style="color:var(--muted)">Finish an opening</small>
+            <div class="chips" id="addBands"></div>
+          </div></div>
+        <span class="grow"></span>
+        <button class="btn primary small" id="dsPreview">Try it on →</button>
+      </div>
+      <p class="lead" id="toolhint"></p>
+    </aside>
+    <div class="card view" id="patcard">
+      <div class="title" style="flex-direction:column;align-items:flex-start;gap:0"><span>Pattern pieces <small id="pathint" style="font-weight:400"></small></span><small style="font-weight:400">matching colors sew together · hover an edge for its length</small></div>
+      <div id="pattern"></div>
+      <div class="toolpop" id="toolpop" style="display:none" role="dialog" aria-live="polite"></div>
+      <div class="overlay" id="patov"><div class="box"><b>Pick a garment to see its pattern</b></div></div>
+      
+    </div>
+  </section>
+  <section class="card log" id="logcard">
+    <div class="lhead" id="loghead"><span>⚠ Warnings</span><span class="cnt" id="logcnt">0</span><small id="logsum" style="font-weight:400;color:var(--muted)"></small><span style="margin-left:auto;color:var(--muted)" id="logtog">▾</span></div>
+    <div class="lbody" id="logbody"></div>
+  </section>
+</main>
+
+<div class="modal" id="modal"><div class="card"><div class="row" style="justify-content:space-between"><h2 id="mtitle"></h2><button class="iconbtn" id="mclose">✕</button></div><div id="mbody"></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="live_springs.js"></script>
+<footer class="site-footer" id="siteFooter">© 2026 Spunfection LLC · Spunfection Studio™ is alpha software, provided as-is ·
+  <a href="/terms" target="_blank" rel="noopener">Terms</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy</a> ·
+  <a href="https://github.com/spunfectionLLC/Drape" target="_blank" rel="noopener">Source code</a> · <a href="https://docs.google.com/forms/d/1UtgLtItux0It6J0uolu7vAvpvrKTFt9J8RHhd3S5SeY/viewform" target="_blank" rel="noopener">Report a bug</a></footer>
+<script src="js/01_core.js"></script>
+<script src="js/02_body.js"></script>
+<script src="js/03_garment.js"></script>
+<script src="js/04_fit.js"></script>
+<script src="js/05_preview.js"></script>
+<script src="js/06_export.js"></script>
+<script src="js/07_viewer.js"></script>
+<script src="js/08_design.js"></script>
+<script src="js/09_trace.js"></script>
+<script src="js/10_fabrics.js"></script>
+<script src="js/11_help.js"></script>
+<script src="js/12_pieces.js"></script>
+<script src="js/13_seams.js"></script>
+<script src="js/14_log.js"></script>
+<script src="js/15_symmetry.js"></script>
+<script src="js/16_board.js"></script>
+<script src="js/17_garments.js"></script>
+<script src="js/18_boot.js"></script>
+</body>
+</html>

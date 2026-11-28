@@ -1,0 +1,13 @@
+{
+  "name": "male S",
+  "units": "cm",
+  "sex": "male",
+  "height": 172,
+  "chest": 90,
+  "waist": 76,
+  "hip": 92,
+  "shoulder_width": 44,
+  "neck": 37,
+  "upper_arm": 28,
+  "arm_length": 58
+}

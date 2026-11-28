@@ -1,0 +1,16 @@
+Spunfection Studio in your browser: speed test
+==================================
+1. Unzip this folder anywhere.
+2. Open a terminal in the folder and run:
+       python -m http.server 8000
+   (any computer with Python; on Windows "py -m http.server 8000" also works)
+3. In Chrome or Edge, open:  http://localhost:8000
+4. Click "Start the test". The first run downloads ~40-60 MB (Python and its
+   science libraries, from Pyodide's CDN); later runs use the browser's cache.
+5. When it finishes, click "Copy results" and paste them back to Claude.
+
+Nothing is uploaded anywhere: the avatar, the pattern and the cloth are all
+computed in the browser tab. "localhost" counts as a secure page, so the
+graphics-card cloth (WebGPU) works.
+If the first step fails, open http://localhost:8000/?pyodide=0.28.3 to try
+another Pyodide version.

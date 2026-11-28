@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.numba_cache/
+.sdf_cache/
+out/
+build/
+dist/
+*.egg-info/
+.venv/

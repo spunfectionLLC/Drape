@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drape"
+version = "1.6.16"
+description = "Spunfection Studio: free, open-source 2D sewing patterns draped in 3D (the code package is drape)"
+authors = [{name = "Spunfection LLC"}]
+maintainers = [{name = "Spunfection LLC"}]
+requires-python = ">=3.10"
+license = {text = "MPL-2.0"}
+dependencies = ["numpy", "numba", "scikit-image", "imageio", "ezdxf", "shapely", "pillow", "scipy", "matplotlib", "libigl", "cryptography"]
+
+[project.optional-dependencies]
+# pdf2image also needs Poppler's pdftoppm on PATH (Windows: winget install oschwartz10612.Poppler)
+# playwright also needs a browser: `playwright install chromium` (or set DRAPE_CHROME)
+test = ["pytest", "pytest-xdist", "pdf2image", "playwright"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["slow: end-to-end simulation tests"]
+
+[tool.setuptools.packages.find]
+include = ["drape*"]
+
+[tool.setuptools.package-data]
+drape = ["data/*", "studio/static/*", "studio/static/css/*", "studio/static/js/*"]
+
+[project.scripts]
+drape-studio = "drape.studio.__main__:main"

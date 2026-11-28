@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spunfection Studio in your browser: speed test</title>
+<meta name="description" content="Spunfection Studio, running entirely in your browser: a speed test of free, open-source 2D sewing patterns draped in 3D.">
+<link rel="canonical" href="https://spunfection.studio/">
+<meta property="og:title" content="Spunfection Studio">
+<meta property="og:site_name" content="Spunfection Studio">
+<meta property="og:url" content="https://spunfection.studio/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Spunfection Studio">
+<style>
+  :root { --ink:#1d2b2a; --muted:#6b7a78; --accent:#1f8a70; --bad:#c0392b; --line:#e3e8e6; --bg:#f6f8f7 }
+  body { font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; color: var(--ink); background: var(--bg); margin: 0 }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 18px 60px }
+  h1 { font-size: 22px; margin: 0 0 4px } p.lead { color: var(--muted); margin: 0 0 18px }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px }
+  table { width: 100%; border-collapse: collapse } td { padding: 6px 4px; border-bottom: 1px dashed var(--line) }
+  td.t { text-align: right; font-variant-numeric: tabular-nums; width: 90px; color: var(--muted) }
+  td.s { width: 26px } .ok { color: var(--accent) } .err { color: var(--bad) } .run { color: #c98a00 }
+  button { font: inherit; border: 0; border-radius: 9px; padding: 10px 18px; background: var(--accent); color: #fff; cursor: pointer }
+  button[disabled] { opacity: .5; cursor: default } button.sec { background: #e8efed; color: var(--ink) }
+  canvas { width: 100%; max-width: 420px; aspect-ratio: 3/4; background: #fbfcfc; border: 1px solid var(--line); border-radius: 10px; display: block; margin: 8px auto }
+  pre { white-space: pre-wrap; font-size: 12px; background: #f1f4f3; padding: 10px; border-radius: 8px; max-height: 260px; overflow: auto }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center }
+  small { color: var(--muted) }
+</style>
+</head>
+<body>
+<main>
+  <h1>Spunfection Studio™, running entirely in your browser</h1>
+  <p class="lead">A speed test: nothing is sent to a server. Python runs in this tab (Pyodide) and the cloth runs on your graphics card (WebGPU). The first run downloads about 40–60 MB; your browser caches it after that.</p>
+  <div class="card">
+    <div class="row"><button id="go">Start the test</button><small id="env"></small></div>
+  </div>
+  <div class="card"><table id="steps"></table></div>
+  <div class="card" id="clothcard" style="display:none">
+    <b>The cloth, simulated on your graphics card</b> <small id="fps"></small>
+    <canvas id="cv" width="420" height="560"></canvas>
+  </div>
+  <div class="card" id="done" style="display:none">
+    <div class="row"><button id="copy">Copy results</button><button class="sec" id="pdf">Download the pattern PDF</button><button class="sec" id="dxf">Download the laser DXF</button></div>
+    <pre id="out"></pre>
+  </div>
+</main>
+<footer style="max-width:860px;margin:0 auto;padding:0 18px 24px;font-size:12px;color:var(--muted);text-align:center">© 2026 Spunfection LLC · Spunfection Studio™ is alpha software, provided as-is ·
+  <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://github.com/spunfectionLLC/Drape">Source code</a> · <a href="https://docs.google.com/forms/d/1UtgLtItux0It6J0uolu7vAvpvrKTFt9J8RHhd3S5SeY/viewform">Report a bug</a></footer>
+<script src="live_springs.js"></script>
+<script type="module">
+const PYODIDE = new URLSearchParams(location.search).get("pyodide") || "314.0.8";
+const $ = s => document.querySelector(s);
+const results = {pyodide: PYODIDE, userAgent: navigator.userAgent, cores: navigator.hardwareConcurrency, memoryGB: navigator.deviceMemory || null, steps: {}};
+$("#env").textContent = `${navigator.hardwareConcurrency || "?"} CPU threads · WebGPU ${navigator.gpu ? "available" : "not available"}`;
+
+const STEPS = [
+  ["runtime", "Load Python (Pyodide)"],
+  ["packages", "Load numpy, SciPy, Shapely, matplotlib, ezdxf"],
+  ["code", "Load Spunfection Studio and the body model"],
+  ["avatar", "Build the avatar (men's M)"],
+  ["draft", "Draft a classic tee and mesh it"],
+  ["setup", "Prepare the drape (body collision grid)"],
+  ["export", "Export the PDF pattern and laser DXF"],
+  ["gpu", "Drape it on the graphics card (8 s of cloth time)"],
+];
+$("#steps").innerHTML = STEPS.map(([k, label]) => `<tr id="r_${k}"><td class="s">·</td><td>${label}</td><td class="t"></td></tr>`).join("");
+async function step(key, fn) {
+  const row = $("#r_" + key); row.cells[0].textContent = "…"; row.cells[0].className = "s run";
+  const t0 = performance.now();
+  try {
+    const v = await fn();
+    const dt = (performance.now() - t0) / 1000;
+    results.steps[key] = +dt.toFixed(2);
+    row.cells[0].textContent = "✓"; row.cells[0].className = "s ok"; row.cells[2].textContent = dt.toFixed(1) + " s";
+    return v;
+  } catch (e) {
+    results.steps[key] = "failed: " + (e && e.message ? e.message.split("\n").slice(-3).join(" ") : e);
+    row.cells[0].textContent = "✗"; row.cells[0].className = "s err"; row.cells[2].textContent = "failed";
+    throw e;
+  }
+}
+
+let py, files = {};
+$("#go").onclick = async () => {
+  $("#go").disabled = true;
+  const t0 = performance.now();
+  try {
+    const {loadPyodide} = await step("runtime", async () => {
+      const mod = await import(`https://cdn.jsdelivr.net/pyodide/v${PYODIDE}/full/pyodide.mjs`);
+      py = await mod.loadPyodide();
+      return mod;
+    });
+    await step("packages", async () => {
+      await py.loadPackage(["micropip"]);
+      const micropip = py.pyimport("micropip");
+      await micropip.install(["numpy", "scipy", "shapely", "matplotlib", "pillow", "scikit-image", "ezdxf"]);
+    });
+    await step("code", async () => {
+      const buf = await (await fetch("drape_bundle.zip")).arrayBuffer();
+      py.unpackArchive(buf, "zip", {extractDir: "/app"});
+      await py.runPythonAsync(`
+import os, sys
+os.environ["DRAPE_SDF_CACHE"] = "/tmp/sdf"; os.environ["DRAPE_CACHE_ROOT"] = "/tmp/nc"; os.environ["MPLBACKEND"] = "Agg"
+os.chdir("/app"); sys.path.insert(0, "/app")
+import drape
+from drape.measurements import Measurements
+from drape.human import fit_human
+from drape.meshbody import MeshBody
+from drape.blocks import draft_block
+from drape.live import live_setup
+`);
+    });
+    await step("avatar", () => py.runPythonAsync(`
+m = Measurements.load("measurements/male_M.json"); h, _ = fit_human(m); body = MeshBody(h, measurements=m)`));
+    await step("draft", () => py.runPythonAsync(`g, _ = draft_block("tee", body, m)`));
+    const setup = await step("setup", async () => JSON.parse(await py.runPythonAsync(`
+import json; json.dumps(live_setup(g, body, "jersey"))`)));
+    await step("export", async () => {
+      await py.runPythonAsync(`
+from drape.printpdf import projector_pdf
+from drape.export_dxf import export_pattern_dxf
+projector_pdf(g.meta["panels"], g.meta["seam_defs"], "/tmp/tee.pdf", "classic tee", sa_cm=1.5)
+export_pattern_dxf("/tmp/tee_laser.dxf", g.meta["panels"], g.meta["seam_defs"], laser=True)`);
+      files.pdf = py.FS.readFile("/tmp/tee.pdf"); files.dxf = py.FS.readFile("/tmp/tee_laser.dxf");
+    });
+    results.points = setup.n;
+    await step("gpu", async () => {
+      if (!navigator.gpu) throw new Error("this browser has no WebGPU: it can design and export, but not drape");
+      const sim = await new LiveSprings().init(setup);
+      results.gpu = sim.adapterInfo;
+      $("#clothcard").style.display = "";
+      const frames = 8 * setup.params.fps, t = performance.now();
+      for (let f = 0; f < frames; f += 2) {
+        await sim.step(2);
+        draw(sim.out, setup.n);
+        $("#fps").textContent = `· ${(sim.time).toFixed(1)} s of cloth · ${Math.round((f + 2) / ((performance.now() - t) / 1000))} frames/s`;
+      }
+      results.gpu_fps = +(frames / ((performance.now() - t) / 1000)).toFixed(1);
+      sim.destroy();
+    });
+  } catch (e) {
+    console.error(e);
+  }
+  results.total_s = +((performance.now() - t0) / 1000).toFixed(1);
+  $("#done").style.display = ""; $("#out").textContent = JSON.stringify(results, null, 1);
+  $("#pdf").disabled = !files.pdf; $("#dxf").disabled = !files.dxf;
+};
+
+function draw(X, n) {            // front view: x across, y up
+  const cv = $("#cv"), c = cv.getContext("2d"); c.clearRect(0, 0, cv.width, cv.height);
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (let i = 0; i < n; i++) { x0 = Math.min(x0, X[3 * i]); x1 = Math.max(x1, X[3 * i]); y0 = Math.min(y0, X[3 * i + 1]); y1 = Math.max(y1, X[3 * i + 1]) }
+  const s = Math.min(cv.width / (x1 - x0 + .1), cv.height / (y1 - y0 + .1)) * .9, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  c.fillStyle = "rgba(31,138,112,.55)";
+  for (let i = 0; i < n; i++) c.fillRect(cv.width / 2 + (X[3 * i] - cx) * s, cv.height / 2 - (X[3 * i + 1] - cy) * s, 1.6, 1.6);
+}
+const save = (data, name, type) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], {type})); a.download = name; a.click() };
+$("#pdf").onclick = () => save(files.pdf, "spunfection_tee.pdf", "application/pdf");
+$("#dxf").onclick = () => save(files.dxf, "spunfection_tee_laser.dxf", "application/dxf");
+$("#copy").onclick = async () => { await navigator.clipboard.writeText(JSON.stringify(results)); $("#copy").textContent = "Copied ✓" };
+</script>
+</body>
+</html>

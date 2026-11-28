@@ -1,0 +1,30 @@
+# Builds the desktop app for Windows, macOS and Linux on every tag (v*) and attaches
+# the zips to the GitHub release. Push a tag:  git tag v1.1 && git push --tags
+name: build apps
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e . pyinstaller
+      - run: python -m pytest tests -q -m "not slow" -x
+      - run: pyinstaller packaging/drape.spec --noconfirm
+      - name: zip
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../drape-studio-${{ runner.os }}.zip drape-studio; else zip -qr ../drape-studio-${{ runner.os }}.zip drape-studio; fi
+      - uses: actions/upload-artifact@v4
+        with: {name: "drape-studio-${{ runner.os }}", path: "drape-studio-${{ runner.os }}.zip"}
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with: {files: "drape-studio-${{ runner.os }}.zip"}

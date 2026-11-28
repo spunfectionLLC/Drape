@@ -1,0 +1,13 @@
+{
+  "name": "male L",
+  "units": "cm",
+  "sex": "male",
+  "height": 183,
+  "chest": 112,
+  "waist": 100,
+  "hip": 110,
+  "shoulder_width": 49,
+  "neck": 43,
+  "upper_arm": 36,
+  "arm_length": 63
+}

@@ -1,0 +1,14 @@
+{
+  "name": "female M",
+  "units": "cm",
+  "sex": "female",
+  "height": 166,
+  "chest": 92,
+  "underbust": 76,
+  "waist": 74,
+  "hip": 100,
+  "shoulder_width": 39,
+  "neck": 34,
+  "upper_arm": 28.5,
+  "arm_length": 56
+}

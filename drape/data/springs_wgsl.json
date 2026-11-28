@@ -1,0 +1,280 @@
+{
+ "body": "\n@group(0) @binding(0) var<uniform> F: Frame;\n@group(0) @binding(1) var<storage, read_write> X: array<f32>;\n@group(0) @binding(2) var<storage, read_write> V: array<f32>;\n@group(0) @binding(3) var<storage, read> PARAM: array<f32>;\n@group(0) @binding(4) var<storage, read_write> VEC: array<vec4f>;\n@group(0) @binding(5) var<storage, read> SDF: array<i32>;\n\nstruct Frame { h: f32, g: f32, damp: f32, ease: f32, cdamp: f32, thick: f32, mu: f32, n: u32, grab: i32, grabK: f32, selfThick: f32, cell: f32, tx: f32, ty: f32, tz: f32, vmax: f32, sox: f32, soy: f32, soz: f32, soh: f32, sdx: u32, sdy: u32, sdz: u32, ntri: u32, ncells: u32, slots: u32, ns: u32, nh: u32, ne: u32, sewStage: u32, unfoldOn: u32, nwg: u32, seamS0: f32, seamS1: f32, seamS2: f32, seamS3: f32, seamA0: f32, seamA1: f32, seamA2: f32, seamA3: f32, tau: f32, deep: f32, tol2: f32, cgMax: u32, cmargin: f32, candAt: u32, oSpr: u32, oIncs: u32, oInc: u32, oIncslot: u32, oRows: u32, oRcol: u32, oAtt: u32, oTri: u32, oGid: u32, pSpr: u32, pAtt: u32, pBk: u32, ecell: f32, eslots: u32, eHashAt: u32, eCandAt: u32 };\nstruct Batch { start: u32, count: u32, kind: u32, it: u32 };\nfn xg(i: u32) -> vec3f { return vec3f(X[3u*i], X[3u*i+1u], X[3u*i+2u]); }\nfn vg(i: u32) -> vec3f { return vec3f(V[3u*i], V[3u*i+1u], V[3u*i+2u]); }\nfn wOf(i: u32) -> f32 { return PARAM[i]; }\nfn vb(b: u32, i: u32) -> u32 { return b * F.n + i; }\nfn seamS(st: u32) -> f32 { return select(select(select(F.seamS3, F.seamS2, st == 2u), F.seamS1, st == 1u), F.seamS0, st == 0u); }\nfn seamA(st: u32) -> f32 { return select(select(select(F.seamA3, F.seamA2, st == 2u), F.seamA1, st == 1u), F.seamA0, st == 0u); }\n\n\nfn sdfAt(i: i32, j: i32, k: i32) -> f32 {\n  let ii = clamp(i, 0, i32(F.sdx) - 1); let jj = clamp(j, 0, i32(F.sdy) - 1); let kk = clamp(k, 0, i32(F.sdz) - 1);\n  let flat = u32(ii) * F.sdy * F.sdz + u32(jj) * F.sdz + u32(kk);\n  let word = SDF[flat / 2u];\n  var v: i32;\n  if ((flat & 1u) == 0u) { v = (word << 16u) >> 16u; } else { v = word >> 16u; }\n  return f32(v) * 1e-5;\n}\nfn sdf(p: vec3f) -> f32 {\n  let D = vec3f(f32(F.sdx), f32(F.sdy), f32(F.sdz));\n  let f = (p - vec3f(F.sox, F.soy, F.soz)) / F.soh;\n  let c = clamp(f, vec3f(0.0), D - vec3f(1.000001));\n  let out = length(f - c) * F.soh;\n  let i = vec3i(floor(c)); let t = c - floor(c);\n  let c00 = mix(sdfAt(i.x, i.y, i.z), sdfAt(i.x+1, i.y, i.z), t.x);\n  let c10 = mix(sdfAt(i.x, i.y+1, i.z), sdfAt(i.x+1, i.y+1, i.z), t.x);\n  let c01 = mix(sdfAt(i.x, i.y, i.z+1), sdfAt(i.x+1, i.y, i.z+1), t.x);\n  let c11 = mix(sdfAt(i.x, i.y+1, i.z+1), sdfAt(i.x+1, i.y+1, i.z+1), t.x);\n  return mix(mix(c00, c10, t.y), mix(c01, c11, t.y), t.z) + out;\n}\nfn sdfNormal(p: vec3f) -> vec3f {   // as meshbody.grid_sdf_grad: central differences, normalised\n  let e = 0.5 * F.soh;\n  let g = vec3f(sdf(p + vec3f(e,0,0)) - sdf(p - vec3f(e,0,0)), sdf(p + vec3f(0,e,0)) - sdf(p - vec3f(0,e,0)),\n                sdf(p + vec3f(0,0,e)) - sdf(p - vec3f(0,0,e)));\n  return g / (length(g) + 1e-12);\n}\n\nfn vs(i: u32, v: vec3f) { V[3u*i] = v.x; V[3u*i+1u] = v.y; V[3u*i+2u] = v.z; }\n\n// 4. body contact (Bridson et al. 2002): a point that would end the substep closer than\n// thick gets just the outward speed to end it at thick; Coulomb friction on the rest\n@compute @workgroup_size(64) fn body(@builtin(global_invocation_id) id: vec3u) {\n  let i = id.x; if (i >= F.n || wOf(i) == 0.0) { return; }\n  var v = vg(i);\n  let ps = xg(i) + F.h * v;            // predicted: read-only\n  let d = sdf(ps); if (d >= F.thick) { return; }\n  let n = sdfNormal(ps);\n  let dvn = (F.thick - d) / F.h;\n  v += dvn * n;\n  VEC[vb(7u, i)] = vec4f(n, 1.0);\n  let vn = dot(v, n); let t = v - vn * n; let tl = length(t);\n  if (tl > 1e-12) { v = vn * n + t * (max(0.0, tl - F.mu * dvn) / tl); }\n  vs(i, v);\n}\n\n// 5-8. cloth-on-cloth result, damping, the speed cap, x += h v (the only position update),\n// and the safety net for a point deep in the body (it never sets a velocity from the move)\n@compute @workgroup_size(64) fn finish(@builtin(global_invocation_id) id: vec3u) {\n  let i = id.x; if (i >= F.n) { return; }\n  VEC[vb(0u, i)] = vec4f(0.0);            // topstitch forces add into it next substep\n  let ds = VEC[vb(8u, i)]; VEC[vb(8u, i)] = vec4f(0.0);\n  let bn = VEC[vb(7u, i)]; VEC[vb(7u, i)] = vec4f(0.0);\n  if (wOf(i) == 0.0) { vs(i, vec3f(0.0)); return; }\n  var v = vg(i) + ds.xyz;\n  v *= 1.0 - (F.damp + F.cdamp * ds.w);\n  let sp = length(v);\n  var capped = false;\n  if (bn.w > 0.0) {   // the body pushed it: the outward push first (up to vmax), the sliding part gets the rest\n    var vn = dot(v, bn.xyz);\n    if (vn > 0.0 && sp > F.vmax) {\n      let t = v - vn * bn.xyz; let tl = length(t);\n      vn = min(vn, F.vmax);\n      let room = sqrt(max(F.vmax * F.vmax - vn * vn, 0.0));\n      v = vn * bn.xyz + t * select(1.0, room / tl, tl > room);\n      capped = true;\n    }\n  }\n  if (!capped && sp > F.vmax) { v *= F.vmax / sp; }\n  var x = xg(i) + F.h * v;\n  let d = sdf(x);\n  if (d < -F.deep) {\n    let n = sdfNormal(x);\n    x += (F.thick - d) * n;\n    let vn = dot(v, n); if (vn < 0.0) { v -= vn * n; }\n  }\n  X[3u*i] = x.x; X[3u*i+1u] = x.y; X[3u*i+2u] = x.z;\n  vs(i, v);\n}\n",
+ "cand": 24,
+ "cg_budget": 48,
+ "ecand": 16,
+ "fields": [
+  [
+   "h",
+   "f32"
+  ],
+  [
+   "g",
+   "f32"
+  ],
+  [
+   "damp",
+   "f32"
+  ],
+  [
+   "ease",
+   "f32"
+  ],
+  [
+   "cdamp",
+   "f32"
+  ],
+  [
+   "thick",
+   "f32"
+  ],
+  [
+   "mu",
+   "f32"
+  ],
+  [
+   "n",
+   "u32"
+  ],
+  [
+   "grab",
+   "i32"
+  ],
+  [
+   "grabK",
+   "f32"
+  ],
+  [
+   "selfThick",
+   "f32"
+  ],
+  [
+   "cell",
+   "f32"
+  ],
+  [
+   "tx",
+   "f32"
+  ],
+  [
+   "ty",
+   "f32"
+  ],
+  [
+   "tz",
+   "f32"
+  ],
+  [
+   "vmax",
+   "f32"
+  ],
+  [
+   "sox",
+   "f32"
+  ],
+  [
+   "soy",
+   "f32"
+  ],
+  [
+   "soz",
+   "f32"
+  ],
+  [
+   "soh",
+   "f32"
+  ],
+  [
+   "sdx",
+   "u32"
+  ],
+  [
+   "sdy",
+   "u32"
+  ],
+  [
+   "sdz",
+   "u32"
+  ],
+  [
+   "ntri",
+   "u32"
+  ],
+  [
+   "ncells",
+   "u32"
+  ],
+  [
+   "slots",
+   "u32"
+  ],
+  [
+   "ns",
+   "u32"
+  ],
+  [
+   "nh",
+   "u32"
+  ],
+  [
+   "ne",
+   "u32"
+  ],
+  [
+   "sewStage",
+   "u32"
+  ],
+  [
+   "unfoldOn",
+   "u32"
+  ],
+  [
+   "nwg",
+   "u32"
+  ],
+  [
+   "seamS0",
+   "f32"
+  ],
+  [
+   "seamS1",
+   "f32"
+  ],
+  [
+   "seamS2",
+   "f32"
+  ],
+  [
+   "seamS3",
+   "f32"
+  ],
+  [
+   "seamA0",
+   "f32"
+  ],
+  [
+   "seamA1",
+   "f32"
+  ],
+  [
+   "seamA2",
+   "f32"
+  ],
+  [
+   "seamA3",
+   "f32"
+  ],
+  [
+   "tau",
+   "f32"
+  ],
+  [
+   "deep",
+   "f32"
+  ],
+  [
+   "tol2",
+   "f32"
+  ],
+  [
+   "cgMax",
+   "u32"
+  ],
+  [
+   "cmargin",
+   "f32"
+  ],
+  [
+   "candAt",
+   "u32"
+  ],
+  [
+   "oSpr",
+   "u32"
+  ],
+  [
+   "oIncs",
+   "u32"
+  ],
+  [
+   "oInc",
+   "u32"
+  ],
+  [
+   "oIncslot",
+   "u32"
+  ],
+  [
+   "oRows",
+   "u32"
+  ],
+  [
+   "oRcol",
+   "u32"
+  ],
+  [
+   "oAtt",
+   "u32"
+  ],
+  [
+   "oTri",
+   "u32"
+  ],
+  [
+   "oGid",
+   "u32"
+  ],
+  [
+   "pSpr",
+   "u32"
+  ],
+  [
+   "pAtt",
+   "u32"
+  ],
+  [
+   "pBk",
+   "u32"
+  ],
+  [
+   "ecell",
+   "f32"
+  ],
+  [
+   "eslots",
+   "u32"
+  ],
+  [
+   "eHashAt",
+   "u32"
+  ],
+  [
+   "eCandAt",
+   "u32"
+  ]
+ ],
+ "grab_k": 50,
+ "nsub_cap": 96,
+ "self": "\n@group(0) @binding(0) var<uniform> F: Frame;\n@group(0) @binding(1) var<storage, read> X: array<f32>;\n@group(0) @binding(2) var<storage, read> V: array<f32>;\n@group(0) @binding(3) var<storage, read> PARAM: array<f32>;\n@group(0) @binding(4) var<storage, read> TOPO: array<u32>;\n@group(0) @binding(5) var<storage, read_write> VEC: array<vec4f>;\n@group(0) @binding(6) var<storage, read_write> CNT: array<atomic<u32>>;\n@group(0) @binding(7) var<storage, read_write> SLOT: array<u32>;\n@group(0) @binding(8) var<storage, read_write> DVA: array<atomic<i32>>;   // per point: dv x, y, z, weight (fixed point)\n\nstruct Frame { h: f32, g: f32, damp: f32, ease: f32, cdamp: f32, thick: f32, mu: f32, n: u32, grab: i32, grabK: f32, selfThick: f32, cell: f32, tx: f32, ty: f32, tz: f32, vmax: f32, sox: f32, soy: f32, soz: f32, soh: f32, sdx: u32, sdy: u32, sdz: u32, ntri: u32, ncells: u32, slots: u32, ns: u32, nh: u32, ne: u32, sewStage: u32, unfoldOn: u32, nwg: u32, seamS0: f32, seamS1: f32, seamS2: f32, seamS3: f32, seamA0: f32, seamA1: f32, seamA2: f32, seamA3: f32, tau: f32, deep: f32, tol2: f32, cgMax: u32, cmargin: f32, candAt: u32, oSpr: u32, oIncs: u32, oInc: u32, oIncslot: u32, oRows: u32, oRcol: u32, oAtt: u32, oTri: u32, oGid: u32, pSpr: u32, pAtt: u32, pBk: u32, ecell: f32, eslots: u32, eHashAt: u32, eCandAt: u32 };\nstruct Batch { start: u32, count: u32, kind: u32, it: u32 };\nfn xg(i: u32) -> vec3f { return vec3f(X[3u*i], X[3u*i+1u], X[3u*i+2u]); }\nfn vg(i: u32) -> vec3f { return vec3f(V[3u*i], V[3u*i+1u], V[3u*i+2u]); }\nfn wOf(i: u32) -> f32 { return PARAM[i]; }\nfn vb(b: u32, i: u32) -> u32 { return b * F.n + i; }\nfn seamS(st: u32) -> f32 { return select(select(select(F.seamS3, F.seamS2, st == 2u), F.seamS1, st == 1u), F.seamS0, st == 0u); }\nfn seamA(st: u32) -> f32 { return select(select(select(F.seamA3, F.seamA2, st == 2u), F.seamA1, st == 1u), F.seamA0, st == 0u); }\n\nfn tv(t: u32, k: u32) -> u32 { return TOPO[F.oTri + 3u*t + k]; }\nfn gone(i: u32) -> bool { return wOf(i) == 0.0 && i32(i) != F.grab; }   // frozen: not there yet\nfn x0g(i: u32) -> vec3f { return VEC[vb(6u, i)].xyz; }\nfn cellOf(p: vec3f) -> vec3i { return vec3i(floor(p / F.cell)); }\nfn hashCell(c: vec3i) -> u32 {\n  let h = (u32(c.x) * 73856093u) ^ (u32(c.y) * 19349663u) ^ (u32(c.z) * 83492791u);\n  return h % F.ncells;\n}\n@compute @workgroup_size(64) fn frameStart(@builtin(global_invocation_id) id: vec3u) {\n  if (id.x < F.n) { VEC[vb(6u, id.x)] = vec4f(xg(id.x), 0.0); }\n  if (id.x < 2u * F.ncells) { atomicStore(&CNT[id.x], 0u); }   // triangles' cells, then the edges'\n}\n@compute @workgroup_size(64) fn hinsert(@builtin(global_invocation_id) id: vec3u) {\n  let t = id.x; if (t >= F.ntri) { return; }\n  let h = hashCell(cellOf((xg(tv(t, 0u)) + xg(tv(t, 1u)) + xg(tv(t, 2u))) / 3.0));\n  let k = atomicAdd(&CNT[h], 1u);\n  if (k < F.slots) { SLOT[h * F.slots + k] = t; }\n}\n// the candidates, once a frame (as cloth.py ClothSim._self_candidates): triangles within cmargin of\n// the point (contact thickness + how far things move this frame), not touching the point's\n// seam group (points sewn together: one point once welded). Triangles touching a group next\n// to it are NOT skipped (cloth.py _is_near does on the welded mesh): at the armpits and the\n// shoulder points the cloth next to a seam lies against the piece it's sewn to, and without\n// those contacts it folded through it while sewing (23 edge crossings on the tee, 2 with\n// them). Stored after the hash slots: a count, then up to SPR_CAND ids.\nfn closestOnTri(p: vec3f, a: vec3f, b: vec3f, c: vec3f) -> vec3f {\n  // Ericson, Real-Time Collision Detection 5.1.5\n  let ab = b - a; let ac = c - a; let ap = p - a;\n  let d1 = dot(ab, ap); let d2 = dot(ac, ap);\n  if (d1 <= 0.0 && d2 <= 0.0) { return a; }\n  let bp = p - b; let d3 = dot(ab, bp); let d4 = dot(ac, bp);\n  if (d3 >= 0.0 && d4 <= d3) { return b; }\n  let vc = d1 * d4 - d3 * d2;\n  if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) { return a + ab * (d1 / (d1 - d3)); }\n  let cp = p - c; let d5 = dot(ab, cp); let d6 = dot(ac, cp);\n  if (d6 >= 0.0 && d5 <= d6) { return c; }\n  let vb2 = d5 * d2 - d1 * d6;\n  if (vb2 <= 0.0 && d2 >= 0.0 && d6 <= 0.0) { return a + ac * (d2 / (d2 - d6)); }\n  let va = d3 * d6 - d5 * d4;\n  if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) { return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))); }\n  let den = 1.0 / (va + vb2 + vc);\n  return a + ab * (vb2 * den) + ac * (vc * den);\n}\n@compute @workgroup_size(64) fn candidates(@builtin(global_invocation_id) id: vec3u) {\n  let p = id.x; if (p >= F.n) { return; }\n  let base = F.candAt + p * 25u;\n  var cnt = 0u;\n  if (!gone(p)) {\n    let xp = xg(p); let c0 = cellOf(xp);\n    let gp = TOPO[F.oGid + p];\n    for (var dx = -1; dx <= 1; dx++) { for (var dy = -1; dy <= 1; dy++) { for (var dz = -1; dz <= 1; dz++) {\n      let hc = hashCell(c0 + vec3i(dx, dy, dz));\n      let n = min(atomicLoad(&CNT[hc]), F.slots);\n      for (var k = 0u; k < n; k++) {\n        if (cnt >= 24u) { break; }\n        let t = SLOT[hc * F.slots + k];\n        let a = tv(t, 0u); let b = tv(t, 1u); let c = tv(t, 2u);\n        if (gone(a) || gone(b) || gone(c)) { continue; }\n        let ga = TOPO[F.oGid + a]; let gb = TOPO[F.oGid + b]; let gc = TOPO[F.oGid + c];\n        if ((ga == gp && length(xp - xg(a)) < F.selfThick) || (gb == gp && length(xp - xg(b)) < F.selfThick) ||\n            (gc == gp && length(xp - xg(c)) < F.selfThick)) { continue; }\n        if (length(xp - closestOnTri(xp, xg(a), xg(b), xg(c))) >= F.cmargin) { continue; }\n        var dup = false;    // a triangle can sit in two of the hashed cells' lists only once, but cells can collide\n        for (var k3 = 0u; k3 < cnt; k3++) { if (SLOT[base + 1u + k3] == t) { dup = true; break; } }\n        if (dup) { continue; }\n        SLOT[base + 1u + cnt] = t; cnt++;\n      }\n    }}}\n  }\n  SLOT[base] = cnt;\n}\n// springs.py _self_impulses on this frame's candidates (Bridson et al. 2002): the pair's\n// relative speed change is split over the point and the triangle's three points by inverse\n// mass and barycentric weight, so the triangle side moves too even when no contact of its\n// own sees the point (a seam pulling the triangle through a point pinned against the body:\n// the shoulder knot). Each point's share adds into DVA (fixed point: WGSL has no float\n// atomics) with a weight (1 as the point, its barycentric one as a triangle corner);\n// gather divides by max(weight, 1), so a lone contact is applied in full and a point in\n// several gets their average. Tested at the predicted positions (read-only), the side from\n// the frame start. Approaching: just the speed to end at thick; already overlapping: eased\n// apart over tau, to thick, or to half of it when one of them is pressed against the\n// body this substep (see below).\nfn addDv(i: u32, d: vec3f, wt: f32) {\n  let q = vec3i(round(d * 1048576.0));\n  atomicAdd(&DVA[4u*i], q.x); atomicAdd(&DVA[4u*i+1u], q.y); atomicAdd(&DVA[4u*i+2u], q.z);\n  atomicAdd(&DVA[4u*i+3u], i32(round(wt * 65536.0)));\n}\n@compute @workgroup_size(64) fn selfimp(@builtin(global_invocation_id) id: vec3u) {\n  let p = id.x; if (p >= F.n || gone(p)) { return; }\n  let base = F.candAt + p * 25u;\n  let cnt = SLOT[base]; if (cnt == 0u) { return; }\n  let vp = vg(p); let pp = xg(p) + F.h * vp; let wp = wOf(p);\n  for (var k = 0u; k < cnt; k++) {\n    let t = SLOT[base + 1u + k];\n    let a = tv(t, 0u); let b = tv(t, 1u); let c = tv(t, 2u);\n    let va = vg(a); let vb_ = vg(b); let vc = vg(c);\n    let A = xg(a) + F.h * va; let Bp = xg(b) + F.h * vb_; let C = xg(c) + F.h * vc;\n    let e1 = Bp - A; let e2 = C - A;\n    var nrm = cross(e1, e2); let nl = length(nrm); if (nl < 1e-14) { continue; }\n    nrm = nrm / nl;\n    let ap = pp - A; let dist = dot(ap, nrm);\n    if (abs(dist) >= F.selfThick) { continue; }\n    let d00 = dot(e1, e1); let d01 = dot(e1, e2); let d11 = dot(e2, e2); let d20 = dot(ap, e1); let d21 = dot(ap, e2);\n    let den = d00 * d11 - d01 * d01; if (den < 1e-20) { continue; }\n    let bv = (d11 * d20 - d01 * d21) / den; let bw = (d00 * d21 - d01 * d20) / den; let bu = 1.0 - bv - bw;\n    if (bu < -0.02 || bv < -0.02 || bw < -0.02) { continue; }\n    let s0 = dot(x0g(p) - x0g(a), cross(x0g(b) - x0g(a), x0g(c) - x0g(a)));\n    var side = select(-1.0, 1.0, s0 > 0.0);\n    if (s0 == 0.0) { side = select(-1.0, 1.0, dist >= 0.0); }\n    let gap = side * dist; if (gap >= F.selfThick) { continue; }\n    let ua = max(bu, 0.0); let ub = max(bv, 0.0); let uc = max(bw, 0.0);\n    let wa = wOf(a); let wb = wOf(b); let wc = wOf(c);\n    let wsum = wp + ua * ua * wa + ub * ub * wb + uc * uc * wc; if (wsum <= 0.0) { continue; }\n    var need = (F.selfThick - gap) / F.h;\n    let vrel = side * dot(vp - ua * va - ub * vb_ - uc * vc, nrm);\n    let gapNow = gap - F.h * vrel;\n    if (gapNow < F.selfThick) {\n      // already overlapping: eased apart over tau. Pressed against the body (one of them\n      // touched it this substep), only to half of thick: layers squeezed between the\n      // arm and the side can't get thick apart, and easing them to it only fights the body\n      // push every substep (0.2 m/s on still points at the armpits); with no easing at all\n      // they crept through each other.\n      let pressed = VEC[vb(7u, p)].w + VEC[vb(7u, a)].w + VEC[vb(7u, b)].w + VEC[vb(7u, c)].w > 0.0;\n      need = max(select(F.selfThick, 0.5 * F.selfThick, pressed) - gapNow, 0.0) / F.tau - vrel;\n      if (need <= 0.0) { continue; } }\n    let I = nrm * (side * min(need, 0.5 * F.selfThick / F.h) / wsum);\n    addDv(p, wp * I, 1.0);\n    if (ua * wa > 0.0) { addDv(a, -ua * wa * I, ua); }\n    if (ub * wb > 0.0) { addDv(b, -ub * wb * I, ub); }\n    if (uc * wc > 0.0) { addDv(c, -uc * wc * I, uc); }\n  }\n}\n// ---- edge on edge (Bridson et al. 2002, section 7.2): point-triangle contacts can't see two\n// edges sliding past each other around a triangle's border (seam corners, a fold through the\n// piece it's sewn to: the shoulder knot). Mesh edges are the first F.ne springs. Hashed by\n// midpoint into cells of F.ecell (wider than the longest edge plus the margin), candidates\n// once a frame, each pair kept by its lower edge id only.\nfn eiv(e: u32) -> u32 { return TOPO[F.oSpr + 2u*e]; }\nfn ejv(e: u32) -> u32 { return TOPO[F.oSpr + 2u*e + 1u]; }\nfn ecellOf(p: vec3f) -> vec3i { return vec3i(floor(p / F.ecell)); }\n// closest points of segments p1-q1 and p2-q2 (Ericson, Real-Time Collision Detection 5.1.9): (s, t)\nfn segST(p1: vec3f, q1: vec3f, p2: vec3f, q2: vec3f) -> vec2f {\n  let d1 = q1 - p1; let d2 = q2 - p2; let r = p1 - p2;\n  let a = dot(d1, d1); let e = dot(d2, d2); let f = dot(d2, r);\n  if (a <= 1e-14 || e <= 1e-14) { return vec2f(0.0); }\n  let c = dot(d1, r); let b = dot(d1, d2); let den = a * e - b * b;\n  var s = 0.0; if (den > 1e-20) { s = clamp((b * f - c * e) / den, 0.0, 1.0); }\n  var t = (b * s + f) / e;\n  if (t < 0.0) { t = 0.0; s = clamp(-c / a, 0.0, 1.0); } else if (t > 1.0) { t = 1.0; s = clamp((b - c) / a, 0.0, 1.0); }\n  return vec2f(s, t);\n}\nfn sameSpot(i: u32, j: u32) -> bool {   // one point, or sewn together and (nearly) there\n  return i == j || (TOPO[F.oGid + i] == TOPO[F.oGid + j] && length(xg(i) - xg(j)) < F.selfThick);\n}\n@compute @workgroup_size(64) fn ehinsert(@builtin(global_invocation_id) id: vec3u) {\n  let e = id.x; if (e >= F.ne) { return; }\n  let h = hashCell(ecellOf(0.5 * (xg(eiv(e)) + xg(ejv(e)))));\n  let k = atomicAdd(&CNT[F.ncells + h], 1u);\n  if (k < F.eslots) { SLOT[F.eHashAt + h * F.eslots + k] = e; }\n}\n@compute @workgroup_size(64) fn ecand(@builtin(global_invocation_id) id: vec3u) {\n  let e = id.x; if (e >= F.ne) { return; }\n  let base = F.eCandAt + e * 17u;\n  var cnt = 0u;\n  let i = eiv(e); let j = ejv(e);\n  if (!gone(i) && !gone(j)) {\n    let xi = xg(i); let xj = xg(j); let c0 = ecellOf(0.5 * (xi + xj));\n    for (var dx = -1; dx <= 1; dx++) { for (var dy = -1; dy <= 1; dy++) { for (var dz = -1; dz <= 1; dz++) {\n      let hc = hashCell(c0 + vec3i(dx, dy, dz));\n      let m = min(atomicLoad(&CNT[F.ncells + hc]), F.eslots);\n      for (var k = 0u; k < m; k++) {\n        if (cnt >= 16u) { break; }\n        let f = SLOT[F.eHashAt + hc * F.eslots + k];\n        if (f <= e) { continue; }\n        let a = eiv(f); let b = ejv(f);\n        if (gone(a) || gone(b)) { continue; }\n        if (sameSpot(i, a) || sameSpot(i, b) || sameSpot(j, a) || sameSpot(j, b)) { continue; }\n        let xa = xg(a); let xb = xg(b); let st = segST(xi, xj, xa, xb);\n        if (length(mix(xi, xj, st.x) - mix(xa, xb, st.y)) >= F.cmargin) { continue; }\n        var dup = false;\n        for (var k3 = 0u; k3 < cnt; k3++) { if (SLOT[base + 1u + k3] == f) { dup = true; break; } }\n        if (dup) { continue; }\n        SLOT[base + 1u + cnt] = f; cnt++;\n      }\n    }}}\n  }\n  SLOT[base] = cnt;\n}\n// as selfimp, for edge e against its candidates: closest points at the predicted positions, the\n// direction across the pair from cross(edge, edge) (from the line between the closest points\n// when they're near parallel), the side from the frame start. The push is split over the four\n// points by inverse mass and segment weight.\n@compute @workgroup_size(64) fn eeimp(@builtin(global_invocation_id) id: vec3u) {\n  let e = id.x; if (e >= F.ne) { return; }\n  let base = F.eCandAt + e * 17u;\n  let cnt = SLOT[base]; if (cnt == 0u) { return; }\n  let i = eiv(e); let j = ejv(e);\n  let vi = vg(i); let vj = vg(j); let wi = wOf(i); let wj = wOf(j);\n  let pi = xg(i) + F.h * vi; let pj = xg(j) + F.h * vj;\n  for (var k = 0u; k < cnt; k++) {\n    let f = SLOT[base + 1u + k];\n    let a = eiv(f); let b = ejv(f);\n    let va = vg(a); let vb_ = vg(b); let wa = wOf(a); let wb = wOf(b);\n    let pa = xg(a) + F.h * va; let pb = xg(b) + F.h * vb_;\n    let st = segST(pi, pj, pa, pb); let s = st.x; let t = st.y;\n    let dv = mix(pi, pj, s) - mix(pa, pb, t); let dist = length(dv);\n    if (dist >= F.selfThick) { continue; }\n    let d1 = pj - pi; let d2 = pb - pa;\n    let cr = cross(d1, d2); let cl = length(cr);\n    var nrm: vec3f;\n    if (cl > 0.05 * sqrt(dot(d1, d1) * dot(d2, d2))) { nrm = cr / cl; }       // more than ~3 degrees apart\n    else if (dist > 1e-9) { nrm = dv / dist; } else { continue; }\n    let d0 = mix(x0g(i), x0g(j), s) - mix(x0g(a), x0g(b), t);\n    let s0 = dot(d0, nrm);\n    var side = select(-1.0, 1.0, s0 > 0.0);\n    if (s0 == 0.0) { side = select(-1.0, 1.0, dot(dv, nrm) >= 0.0); }\n    let gap = side * dot(dv, nrm); if (gap >= F.selfThick) { continue; }\n    let ci = 1.0 - s; let cj = s; let ca = 1.0 - t; let cb = t;\n    let wsum = ci * ci * wi + cj * cj * wj + ca * ca * wa + cb * cb * wb; if (wsum <= 0.0) { continue; }\n    var need = (F.selfThick - gap) / F.h;\n    let vrel = side * dot(ci * vi + cj * vj - ca * va - cb * vb_, nrm);\n    let gapNow = gap - F.h * vrel;\n    if (gapNow < F.selfThick) {   // as selfimp\n      let pressed = VEC[vb(7u, i)].w + VEC[vb(7u, j)].w + VEC[vb(7u, a)].w + VEC[vb(7u, b)].w > 0.0;\n      need = max(select(F.selfThick, 0.5 * F.selfThick, pressed) - gapNow, 0.0) / F.tau - vrel;\n      if (need <= 0.0) { continue; } }\n    let I = nrm * (side * min(need, 0.5 * F.selfThick / F.h) / wsum);\n    if (ci * wi > 0.0) { addDv(i, ci * wi * I, ci); }\n    if (cj * wj > 0.0) { addDv(j, cj * wj * I, cj); }\n    if (ca * wa > 0.0) { addDv(a, -ca * wa * I, ca); }\n    if (cb * wb > 0.0) { addDv(b, -cb * wb * I, cb); }\n  }\n}\n// the contacts' sum per point into VEC.DVS (finish adds it), divided by max(weight, 1); clears DVA\n@compute @workgroup_size(64) fn gather(@builtin(global_invocation_id) id: vec3u) {\n  let i = id.x; if (i >= F.n) { return; }\n  let q = vec3f(f32(atomicExchange(&DVA[4u*i], 0)), f32(atomicExchange(&DVA[4u*i+1u], 0)), f32(atomicExchange(&DVA[4u*i+2u], 0)));\n  let wt = f32(atomicExchange(&DVA[4u*i+3u], 0)) / 65536.0;\n  let any = q.x != 0.0 || q.y != 0.0 || q.z != 0.0 || wt > 0.0;\n  if (any) { VEC[vb(8u, i)] = vec4f(q / (1048576.0 * max(wt, 1.0)), 1.0); }\n}\n",
+ "solve": "\n@group(0) @binding(0) var<uniform> F: Frame;\n@group(0) @binding(1) var<storage, read> X: array<f32>;\n@group(0) @binding(2) var<storage, read_write> V: array<f32>;\n@group(0) @binding(3) var<storage, read> PARAM: array<f32>;   // inverse masses, spring / topstitch data, bending blocks\n@group(0) @binding(4) var<storage, read> TOPO: array<u32>;\n@group(0) @binding(5) var<storage, read_write> VEC: array<vec4f>;\n@group(0) @binding(6) var<storage, read_write> TMP: array<vec4f>;   // per spring 3, then the matrix: 2 per slot\n@group(0) @binding(7) var<storage, read_write> SCAL: array<f32>;    // reduction partials, CG scalars\n@group(1) @binding(0) var<uniform> B: Batch;\n\nstruct Frame { h: f32, g: f32, damp: f32, ease: f32, cdamp: f32, thick: f32, mu: f32, n: u32, grab: i32, grabK: f32, selfThick: f32, cell: f32, tx: f32, ty: f32, tz: f32, vmax: f32, sox: f32, soy: f32, soz: f32, soh: f32, sdx: u32, sdy: u32, sdz: u32, ntri: u32, ncells: u32, slots: u32, ns: u32, nh: u32, ne: u32, sewStage: u32, unfoldOn: u32, nwg: u32, seamS0: f32, seamS1: f32, seamS2: f32, seamS3: f32, seamA0: f32, seamA1: f32, seamA2: f32, seamA3: f32, tau: f32, deep: f32, tol2: f32, cgMax: u32, cmargin: f32, candAt: u32, oSpr: u32, oIncs: u32, oInc: u32, oIncslot: u32, oRows: u32, oRcol: u32, oAtt: u32, oTri: u32, oGid: u32, pSpr: u32, pAtt: u32, pBk: u32, ecell: f32, eslots: u32, eHashAt: u32, eCandAt: u32 };\nstruct Batch { start: u32, count: u32, kind: u32, it: u32 };\nfn xg(i: u32) -> vec3f { return vec3f(X[3u*i], X[3u*i+1u], X[3u*i+2u]); }\nfn vg(i: u32) -> vec3f { return vec3f(V[3u*i], V[3u*i+1u], V[3u*i+2u]); }\nfn wOf(i: u32) -> f32 { return PARAM[i]; }\nfn vb(b: u32, i: u32) -> u32 { return b * F.n + i; }\nfn seamS(st: u32) -> f32 { return select(select(select(F.seamS3, F.seamS2, st == 2u), F.seamS1, st == 1u), F.seamS0, st == 0u); }\nfn seamA(st: u32) -> f32 { return select(select(select(F.seamA3, F.seamA2, st == 2u), F.seamA1, st == 1u), F.seamA0, st == 0u); }\n\nfn sa(e: u32, k: u32) -> f32 { return PARAM[F.pSpr + 8u*e + k]; }\nfn si(e: u32) -> u32 { return TOPO[F.oSpr + 2u*e]; }\nfn sj(e: u32) -> u32 { return TOPO[F.oSpr + 2u*e + 1u]; }\nfn uv(i: u32) -> vec3f { return VEC[vb(5u, i)].xyz; }\nfn mat(s: u32) -> u32 { return 3u * F.ns + 2u * s; }   // the matrix block of row slot s in TMP\n// a symmetric 3x3 block as (xx, yy, zz, xy), (xz, yz, -, -)\nfn bmul(a: vec4f, b: vec4f, u: vec3f) -> vec3f {\n  return vec3f(a.x * u.x + a.w * u.y + b.x * u.z, a.w * u.x + a.y * u.y + b.y * u.z, b.x * u.x + b.y * u.y + a.z * u.z);\n}\n// SCAL layout: 4 partial arrays of nwg ((r,u), (w,u), (r,r), (b,b)), then: -, iterations this\n// substep, most this frame, budget hit (1), gamma[0..budget], alpha[0..budget], done[0..budget]\nfn sBase() -> u32 { return 4u * F.nwg; }\nfn gAt(it: u32) -> u32 { return sBase() + 4u + it; }\nfn aAt(it: u32) -> u32 { return sBase() + 6u + 48u + it; }\nfn doneAt(it: u32) -> u32 { return sBase() + 8u + 96u + it; }\nfn restOf(e: u32) -> f32 {\n  let kind = u32(sa(e, 4u)); let r = sa(e, 0u);\n  if (kind == 0u) { return r + (sa(e, 1u) - r) * F.ease; }\n  if (kind == 1u) { return r * max(seamS(min(u32(sa(e, 5u)), 3u)), 0.0); }\n  return r;\n}\n\nvar<workgroup> wflag: f32;   // the done flag, read once per workgroup (uniform: it can return before the sums)\nvar<workgroup> red0: array<f32, 64>;\nvar<workgroup> red1: array<f32, 64>;\nfn wgSum2(l: u32, a: f32, b: f32) -> vec2f {\n  red0[l] = a; red1[l] = b; workgroupBarrier();\n  for (var s = 32u; s > 0u; s >>= 1u) { if (l < s) { red0[l] += red0[l + s]; red1[l] += red1[l + s]; } workgroupBarrier(); }\n  let r = vec2f(red0[0], red1[0]); workgroupBarrier(); return r;\n}\nfn sumPart(at: u32, l: u32) -> f32 {   // every workgroup adds the partials up itself, in the same order\n  var s = 0.0; for (var k = l; k < F.nwg; k += 64u) { s += SCAL[at + k]; }\n  return wgSum2(l, s, 0.0).x;\n}\n\n// 1. per spring: force and direction. Seams of a later stage while they sew are explicit\n// and one-sided (springs.py _seam_forces_one_sided), not in K.\n@compute @workgroup_size(64) fn forces(@builtin(global_invocation_id) id: vec3u) {\n  let e = id.x; if (e >= F.ns) { return; }\n  let i = si(e); let j = sj(e);\n  let kind = u32(sa(e, 4u)); let k = sa(e, 2u);\n  var on = true; var fi = 1.0; var fj = 1.0; var isImp = 1.0;\n  if (kind == 1u) {\n    let st = min(u32(sa(e, 5u)), 3u);\n    if (seamS(st) < 0.0) { on = false; }\n    if (F.sewStage > 0u && st + 1u == F.sewStage) {\n      isImp = 0.0; let an = u32(sa(e, 6u));\n      if ((an & 1u) != 0u) { fi = seamA(st); }\n      if ((an & 2u) != 0u) { fj = seamA(st); }\n    }\n  } else if (kind == 2u && F.unfoldOn == 0u) { on = false; }\n  let rest = restOf(e);\n  let d = xg(i) - xg(j); let L = length(d);\n  var nd = vec3f(0.0); var fac = 0.0; var f = vec3f(0.0);\n  if (on && L > 1e-12) { nd = d / L; fac = max(0.0, 1.0 - rest / L); f = d * (-k * (L - rest) / L); }\n  else { isImp = 0.0; }\n  TMP[3u*e] = vec4f(nd, fac); TMP[3u*e+1u] = vec4f(f * fi, isImp); TMP[3u*e+2u] = vec4f(-f * fj, 0.0);\n}\n\n// topstitching (explicit, one-sided: only when pulled away), colour batches add into VEC.F\n@compute @workgroup_size(64) fn attach(@builtin(global_invocation_id) id: vec3u) {\n  if (id.x >= B.count) { return; }\n  let c = B.start + id.x;\n  let o = F.oAtt + 4u*c; let p0 = F.pAtt + 8u*c;\n  let sc = seamS(min(u32(PARAM[p0 + 5u]), 3u)); if (sc < 0.0) { return; }\n  let i = TOPO[o]; let a = TOPO[o+1u]; let b = TOPO[o+2u]; let d = TOPO[o+3u];\n  let ba = PARAM[p0]; let bb = PARAM[p0 + 1u]; let bd = PARAM[p0 + 2u];\n  let rest = max(PARAM[p0 + 3u] * sc, F.selfThick + 0.0005);\n  let D = xg(i) - (ba * xg(a) + bb * xg(b) + bd * xg(d)); let L = length(D);\n  if (L < 1e-12 || L <= rest) { return; }\n  // explicit, so capped at half its stability limit (k h^2 W < 1, W the pair's inverse mass):\n  // at full strength (SEAM_K x the fabric's k) the dress front shook against the pocket bags\n  // stitched to it (KE 1900 uJ; with the cap 20-ish, as with no stitches at all)\n  let W = wOf(i) + ba * ba * wOf(a) + bb * bb * wOf(b) + bd * bd * wOf(d);\n  let kc = min(PARAM[p0 + 4u], 0.5 / (F.h * F.h * max(W, 1e-12)));\n  let f = D * (kc * (L - rest) / L);\n  VEC[vb(0u, i)] -= vec4f(f, 0.0);\n  VEC[vb(0u, a)] += vec4f(f * ba, 0.0); VEC[vb(0u, b)] += vec4f(f * bb, 0.0); VEC[vb(0u, d)] += vec4f(f * bd, 0.0);\n}\n\n// 2a. per vertex row (dv starts from the last substep's answer: fewer CG iterations, the\n// same tolerance): K = -dF/dx assembled as 3x3 blocks (bending: constant bk I per slot;\n// each implicit spring: k [(1 - f) n n^T + f I] on the diagonal, minus it at the partner),\n// the forces (springs, topstitching, bending -K_b x, the mouse), b = h (F + M g - h K v),\n// the block-Jacobi preconditioner P = (M + h^2 K_ii)^-1, r = b - A dv0, u = P r\n@compute @workgroup_size(64) fn cgInit(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id) lid: vec3u,\n                                        @builtin(workgroup_id) wid: vec3u) {\n  let i = gid.x; let l = lid.x;\n  var bn = 0.0;\n  if (gid.x == 0u) { SCAL[doneAt(0u)] = 0.0; SCAL[sBase() + 1u] = 0.0; }\n  if (i < F.n) {\n    let r0 = TOPO[F.oRows + i]; let r1 = TOPO[F.oRows + i + 1u];\n    var f = VEC[vb(0u, i)].xyz;\n    var ds = r0;\n    for (var s = r0; s < r1; s++) {\n      let c = TOPO[F.oRcol + s]; let b = PARAM[F.pBk + s];\n      if (c == i) { ds = s; }\n      f -= b * xg(c);\n      TMP[mat(s)] = vec4f(b, b, b, 0.0); TMP[mat(s) + 1u] = vec4f(0.0);\n    }\n    var Da = vec4f(0.0); var Db = vec4f(0.0);   // the springs' part of the diagonal block\n    let a = TOPO[F.oIncs + i]; let bE = TOPO[F.oIncs + i + 1u];\n    for (var c = a; c < bE; c++) {\n      let ent = TOPO[F.oInc + c]; let e = ent >> 1u; let t1 = TMP[3u*e+1u];\n      if ((ent & 1u) == 0u) { f += t1.xyz; } else { f += TMP[3u*e+2u].xyz; }\n      if (t1.w > 0.0) {\n        let nf = TMP[3u*e]; let n = nf.xyz; let fa = nf.w; let k = sa(e, 2u); let q = k * (1.0 - fa);\n        let Ka = vec4f(q * n.x * n.x + k * fa, q * n.y * n.y + k * fa, q * n.z * n.z + k * fa, q * n.x * n.y);\n        let Kb = vec4f(q * n.x * n.z, q * n.y * n.z, 0.0, 0.0);\n        Da += Ka; Db += Kb;\n        let ps = TOPO[F.oIncslot + c];\n        TMP[mat(ps)] -= Ka; TMP[mat(ps) + 1u] -= Kb;\n      }\n    }\n    if (i32(i) == F.grab) { f += F.grabK * (vec3f(F.tx, F.ty, F.tz) - xg(i)); Da += vec4f(F.grabK, F.grabK, F.grabK, 0.0); }\n    TMP[mat(ds)] += Da; TMP[mat(ds) + 1u] += Db;\n    var kv = vec3f(0.0); var kd = vec3f(0.0);   // K v, and K dv0 (dv0: the last substep's answer, the start guess)\n    for (var s = r0; s < r1; s++) {\n      let c = TOPO[F.oRcol + s]; let A = TMP[mat(s)]; let Bm = TMP[mat(s) + 1u];\n      kv += bmul(A, Bm, vg(c)); kd += bmul(A, Bm, VEC[vb(1u, c)].xyz);\n    }\n    let w = wOf(i);\n    var r = vec3f(0.0); var b0 = vec3f(0.0); var Pa = vec4f(1.0, 1.0, 1.0, 0.0); var Pb = vec4f(0.0);\n    if (w > 0.0) {\n      let m = 1.0 / w; let h2 = F.h * F.h;\n      b0 = F.h * (f + vec3f(0.0, m * F.g, 0.0) - F.h * kv);\n      r = b0 - (m * VEC[vb(1u, i)].xyz + h2 * kd);   // r = b - A dv0\n      let A = TMP[mat(ds)]; let Bd = TMP[mat(ds) + 1u];\n      let xx = m + h2 * A.x; let yy = m + h2 * A.y; let zz = m + h2 * A.z; let xy = h2 * A.w; let xz = h2 * Bd.x; let yz = h2 * Bd.y;\n      let c11 = yy * zz - yz * yz; let c12 = xz * yz - xy * zz; let c13 = xy * yz - yy * xz;\n      let c22 = xx * zz - xz * xz; let c23 = xy * xz - xx * yz; let c33 = xx * yy - xy * xy;\n      let det = xx * c11 + xy * c12 + xz * c13;\n      Pa = vec4f(c11, c22, c33, c12) / det; Pb = vec4f(c13, c23, 0.0, 0.0) / det;\n    }\n    VEC[vb(2u, i)] = vec4f(r, 0.0); VEC[vb(5u, i)] = vec4f(bmul(Pa, Pb, r), 0.0);\n    VEC[vb(9u, i)] = Pa; VEC[vb(10u, i)] = Pb;\n    bn = dot(b0, b0);\n  }\n  let s = wgSum2(l, bn, 0.0);\n  if (l == 0u) { SCAL[3u * F.nwg + wid.x] = s.x; }\n}\n// 2b. CG, Chronopoulos-Gear form (one global sum per iteration; Ghysels and Vanroose 2014,\n// algorithm 2): cgW then cgStep, B.it = the iteration\n// cgW: w = A u, and this state's sums (r,u), (w,u), (r,r) per workgroup\n@compute @workgroup_size(64) fn cgW(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id) lid: vec3u,\n                                     @builtin(workgroup_id) wid: vec3u) {\n  let i = gid.x; let l = lid.x;\n  if (l == 0u) { wflag = SCAL[doneAt(B.it)]; }\n  if (workgroupUniformLoad(&wflag) != 0.0) { return; }\n  var ru = 0.0; var wu = 0.0; var rr = 0.0;\n  if (i < F.n) {\n    let w = wOf(i);\n    var wv = vec3f(0.0);\n    let u = uv(i);\n    if (w > 0.0) {\n      var ku = vec3f(0.0);\n      for (var s = TOPO[F.oRows + i]; s < TOPO[F.oRows + i + 1u]; s++) { ku += bmul(TMP[mat(s)], TMP[mat(s) + 1u], uv(TOPO[F.oRcol + s])); }\n      wv = u / w + F.h * F.h * ku;\n    }\n    VEC[vb(11u, i)] = vec4f(wv, 0.0);\n    let r = VEC[vb(2u, i)].xyz;\n    ru = dot(r, u); wu = dot(wv, u); rr = dot(r, r);\n  }\n  let s = wgSum2(l, ru, wu); let s2 = wgSum2(l, rr, 0.0);\n  if (l == 0u) { SCAL[wid.x] = s.x; SCAL[F.nwg + wid.x] = s.y; SCAL[2u * F.nwg + wid.x] = s2.x; }\n}\n// cgStep: every workgroup adds the sums up itself; stop when |r| <= tol |b| (as springs.py);\n// else beta = g / g_prev, alpha = g / (d - beta g / alpha_prev), p = u + beta p, s = w + beta s,\n// dv += alpha p, r -= alpha s, u = P r\n@compute @workgroup_size(64) fn cgStep(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id) lid: vec3u) {\n  let i = gid.x; let l = lid.x; let it = B.it;\n  if (l == 0u) { wflag = SCAL[doneAt(it)]; }\n  if (workgroupUniformLoad(&wflag) != 0.0) {\n    if (gid.x == 0u) { SCAL[doneAt(it + 1u)] = 1.0; }\n    return;\n  }\n  let g = sumPart(0u, l); let d = sumPart(F.nwg, l); let rr = sumPart(2u * F.nwg, l); let bn = sumPart(3u * F.nwg, l);\n  let dn = false;\n  let conv = bn == 0.0 || rr <= F.tol2 * bn;\n  var beta = 0.0; var al = 0.0;\n  if (it == 0u) { al = g / d; }\n  else { beta = g / SCAL[gAt(it - 1u)]; al = g / (d - beta * g / SCAL[aAt(it - 1u)]); }\n  let bad = !(al > 0.0) || !(al < 1e30) || !(abs(beta) < 1e30);\n  let fin = dn || conv || bad;\n  if (gid.x == 0u) {\n    SCAL[doneAt(it + 1u)] = select(0.0, 1.0, fin);\n    if (!fin) {\n      SCAL[gAt(it)] = g; SCAL[aAt(it)] = al;\n      SCAL[sBase() + 1u] = f32(it + 1u); SCAL[sBase() + 2u] = max(SCAL[sBase() + 2u], f32(it + 1u));\n      if (it + 1u >= F.cgMax) { SCAL[sBase() + 3u] = 1.0; }   // the budget ran out before it converged\n    }\n  }\n  if (i < F.n && !fin) {\n    let u = uv(i); let w = VEC[vb(11u, i)].xyz;\n    var p = u; var sv = w;\n    if (it > 0u) { p = u + beta * VEC[vb(3u, i)].xyz; sv = w + beta * VEC[vb(4u, i)].xyz; }\n    let r = VEC[vb(2u, i)].xyz - al * sv;\n    VEC[vb(3u, i)] = vec4f(p, 0.0); VEC[vb(4u, i)] = vec4f(sv, 0.0);\n    VEC[vb(1u, i)] = vec4f(VEC[vb(1u, i)].xyz + al * p, 0.0);\n    VEC[vb(2u, i)] = vec4f(r, 0.0);\n    VEC[vb(5u, i)] = vec4f(bmul(VEC[vb(9u, i)], VEC[vb(10u, i)], r), 0.0);\n  }\n}\n@compute @workgroup_size(64) fn applyDv(@builtin(global_invocation_id) id: vec3u) {\n  let i = id.x; if (i >= F.n || wOf(i) == 0.0) { return; }\n  let v = vg(i) + VEC[vb(1u, i)].xyz;\n  V[3u*i] = v.x; V[3u*i+1u] = v.y; V[3u*i+2u] = v.z;\n}\n\n// 3. strain limit (Provot 1995) as velocity impulses (Bridson et al. 2002), colour batches\n// of the mesh edges: only stretching speed is taken away, so it can't add energy\n@compute @workgroup_size(64) fn strain(@builtin(global_invocation_id) id: vec3u) {\n  if (id.x >= B.count) { return; }\n  let e = B.start + id.x; let i = si(e); let j = sj(e);\n  let wi = wOf(i); let wj = wOf(j); let ws = wi + wj; if (ws == 0.0) { return; }\n  let vi = vg(i); let vj = vg(j);\n  let d = (xg(i) + F.h * vi) - (xg(j) + F.h * vj);   // predicted: read-only\n  let L = length(d); let Lmax = (1.0 + sa(e, 3u)) * restOf(e);\n  if (L <= Lmax || L < 1e-12) { return; }\n  let n = d / L; let u = dot(vi - vj, n);\n  if (u <= 0.0) { return; }\n  let dv = min((L - Lmax) / F.h, u);\n  let a = vi - n * (wi / ws * dv); let b = vj + n * (wj / ws * dv);\n  V[3u*i] = a.x; V[3u*i+1u] = a.y; V[3u*i+2u] = a.z;\n  V[3u*j] = b.x; V[3u*j+1u] = b.y; V[3u*j+2u] = b.z;\n}\n",
+ "source": "drape/studio/static/live_springs.js (tools/export_wgsl.py)",
+ "speed_headroom": 1.25,
+ "speed_safety": 0.5,
+ "ubytes": 256,
+ "vb": {
+  "BN": 7,
+  "DV": 1,
+  "DVS": 8,
+  "F": 0,
+  "MISC": 9,
+  "MISC2": 10,
+  "P": 3,
+  "R": 2,
+  "S": 4,
+  "U": 5,
+  "W": 11,
+  "X0": 6
+ },
+ "vb_count": 12,
+ "wg": 64
+}

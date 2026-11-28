@@ -1,0 +1,20 @@
+// Spunfection Studio on Cloudflare: a Worker that only serves static files (no server code).
+// The files are out/site/, built by `python tools/build_site.py` (docs/WEBSITE.md).
+// Deploy: `npx wrangler deploy` with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID set in the
+// environment (never in this file). Served on spunfection.studio (and www), plus *.workers.dev.
+{
+  "name": "spunfection-studio",
+  "account_id": "759f8c8b69c9f5600bf45ab18d41775e",
+  "compatibility_date": "2026-11-01",
+  // Custom Domains: Cloudflare makes the DNS records and the certificate (Tyler approved, 2026-11-22)
+  "routes": [
+    {"pattern": "spunfection.studio", "custom_domain": true},
+    {"pattern": "www.spunfection.studio", "custom_domain": true}
+  ],
+  "assets": {
+    "directory": "./out/site",
+    // /terms -> terms.html, / -> index.html
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "seam_allowance_mm": 15,
+  "pieces": {"piece0": "lower_back", "piece1": "lower_front"},
+  "seams": "auto"
+}

@@ -1,0 +1,187 @@
+{
+ "format": "drape-project",
+ "app": "Spunfection Studio",
+ "version": 2,
+ "name": "A-line skirt",
+ "avatar": {
+  "measurements": {
+   "sex": "female",
+   "height": 166,
+   "chest": 92,
+   "waist": 74,
+   "hip": 100
+  }
+ },
+ "scene": {
+  "units": "cm"
+ },
+ "garments": [
+  {
+   "id": "skirt-1",
+   "name": "A-line skirt",
+   "color": "#1f7a6d",
+   "layer": 1,
+   "visible": true,
+   "frozen": false,
+   "block": null,
+   "choices": {},
+   "params": {},
+   "scratch": true,
+   "fabric": "poplin",
+   "print": "none",
+   "printCm": 8,
+   "design": {
+    "format": 2,
+    "pieces": [
+     {
+      "name": "front",
+      "verts": [
+       [
+        -34,
+        0
+       ],
+       [
+        34,
+        0
+       ],
+       [
+        26,
+        60
+       ],
+       [
+        -26,
+        60
+       ]
+      ],
+      "shape": {
+       "type": "custom"
+      },
+      "at": [
+       0,
+       0
+      ],
+      "place": {
+       "landmark": "waist_front",
+       "at": "top",
+       "mode": "wrap",
+       "rotate": 0,
+       "offset_cm": 2
+      },
+      "edges": [
+       {
+        "name": "hem",
+        "c1": null,
+        "c2": null,
+        "elastic": false,
+        "hem": {
+         "style": "double",
+         "depth_cm": 2,
+         "turn_cm": 1
+        }
+       },
+       {
+        "name": "side_r",
+        "c1": null,
+        "c2": null,
+        "elastic": false
+       },
+       {
+        "name": "waist",
+        "c1": null,
+        "c2": null,
+        "elastic": true
+       },
+       {
+        "name": "side_l",
+        "c1": null,
+        "c2": null,
+        "elastic": false
+       }
+      ],
+      "role": "body"
+     },
+     {
+      "name": "back",
+      "verts": [
+       [
+        -34,
+        0
+       ],
+       [
+        34,
+        0
+       ],
+       [
+        26,
+        60
+       ],
+       [
+        -26,
+        60
+       ]
+      ],
+      "shape": {
+       "type": "custom"
+      },
+      "at": [
+       80,
+       0
+      ],
+      "place": {
+       "landmark": "waist_back",
+       "at": "top",
+       "mode": "wrap",
+       "rotate": 0,
+       "offset_cm": 2
+      },
+      "edges": [
+       {
+        "name": "hem",
+        "c1": null,
+        "c2": null,
+        "elastic": false,
+        "hem": {
+         "style": "double",
+         "depth_cm": 2,
+         "turn_cm": 1
+        }
+       },
+       {
+        "name": "side_r",
+        "c1": null,
+        "c2": null,
+        "elastic": false
+       },
+       {
+        "name": "waist",
+        "c1": null,
+        "c2": null,
+        "elastic": true
+       },
+       {
+        "name": "side_l",
+        "c1": null,
+        "c2": null,
+        "elastic": false
+       }
+      ],
+      "role": "body"
+     }
+    ],
+    "seams": [
+     {
+      "a": "front.side_r",
+      "b": "back.side_l",
+      "ease": 0
+     },
+     {
+      "a": "front.side_l",
+      "b": "back.side_r",
+      "ease": 0
+     }
+    ]
+   }
+  }
+ ],
+ "activeGarmentId": "skirt-1"
+}
